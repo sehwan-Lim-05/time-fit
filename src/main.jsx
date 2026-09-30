@@ -946,7 +946,7 @@ function ExpenseWorkspace({ organizationId, accountId, employees, navigationCont
     </div>
     {EXPENSE_SECTIONS.map(([id]) => <div key={id} id={`expense-panel-${id}`} role="tabpanel" aria-labelledby={`expense-tab-${id}`} hidden={section !== id}>
       {visited.has(id) && <>
-      {id === 'overview' && <><FinanceReportDashboard organizationId={organizationId} onOpenPayroll={() => onNavigate('payroll')}/><ExpenseExceptionInbox organizationId={organizationId} onNavigate={fromException} refreshToken={receiptRevision}/></>}
+      {id === 'overview' && <><FinanceReportDashboard organizationId={organizationId} onOpenLedger={() => selectSection('ledger')}/><ExpenseExceptionInbox organizationId={organizationId} onNavigate={fromException} refreshToken={receiptRevision}/></>}
       {id === 'ledger' && <><ExpenseLedger organizationId={organizationId}/><ManualExpenseForm organizationId={organizationId} employees={employees}/></>}
       {id === 'evidence' && <><ExpenseReviewQueue organizationId={organizationId} accountId={accountId} canReview={canReview} focusDocumentId={reviewDocumentId} refreshToken={receiptRevision}/><ExpenseReminderSettings organizationId={organizationId}/></>}
       {id === 'cards' && <>{navigationContext?.cardReview && <CardReviewList accountId={accountId} organizationId={organizationId} month={navigationContext.month} onBack={() => onNavigate('dashboard')} onOpenReviewQueue={() => selectSection('evidence')}/>}<CorporateCards organizationId={organizationId} employees={employees}/></>}

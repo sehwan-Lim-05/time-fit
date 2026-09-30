@@ -1,4 +1,5 @@
 import { authorizeFinance, financeError, financeRest, financeServerConfigured, methodNotAllowed } from './_finance-server.js';
+import { isExpenseAmountAnomalous } from '../domain/expense-amount-validation.js';
 
 const dateOnly = value => String(value || '').slice(0, 10);
 const koreaDateKey = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date());
@@ -78,12 +79,14 @@ const sumFinanceRows = rows => rows.reduce((sum, day) => {
 const withFinanceRates = totals => ({ ...totals, averageOrderValue: totals.orderCount ? Math.round(totals.netSales / totals.orderCount) : null, kitchenCostRate: totals.netSales ? Math.round(totals.kitchenPurchases / totals.netSales * 1000) / 10 : null, hallCostRate: totals.netSales ? Math.round(totals.hallPurchases / totals.netSales * 1000) / 10 : null, laborCostRate: totals.netSales ? Math.round(totals.laborCost / totals.netSales * 1000) / 10 : null, profitMargin: totals.netSales ? Math.round((totals.operatingProfit / totals.netSales) * 1000) / 10 : null });
 
 export function buildFinanceReport({ from, to, salesRows = [], expenses = [], unreconciledCardTransactions = [], payrollDrafts = [], payrollLines = [], attendanceRecords = [], unresolvedReceipts = 0, cardFeeRate = 0, revenueRentRate = 0, asOfDate = koreaDateKey() }) {
+  const anomalousExpenses = expenses.filter(item => isExpenseAmountAnomalous(item.total_amount));
+  const reportableExpenses = expenses.filter(item => !isExpenseAmountAnomalous(item.total_amount));
   const days = datesInRange(from, to); const lineByDraft = new Map();
   payrollLines.forEach(line => lineByDraft.set(line.payroll_draft_id, (lineByDraft.get(line.payroll_draft_id) || 0) + Number(line.estimated_total || 0)));
   const payrollByMonth = new Map(payrollDrafts.map(draft => [dateOnly(draft.settlement_month).slice(0, 7), lineByDraft.get(draft.id) || 0]));
   const dailyLabor = buildDailyLaborMap({ payrollDrafts, payrollLines, attendanceRecords });
   const actualSeries = days.map(date => {
-    const daySales = salesRows.filter(row => dateOnly(row.sales_date) === date); const dayExpenses = expenses.filter(item => dateOnly(item.transaction_date) === date);
+    const daySales = salesRows.filter(row => dateOnly(row.sales_date) === date); const dayExpenses = reportableExpenses.filter(item => dateOnly(item.transaction_date) === date);
     const dayUnreconciledCards = unreconciledCardTransactions.filter(item => dateOnly(item.approved_at) === date);
     const sales = daySales.reduce((sum, row) => sum + Number(row.completed_amount || 0), 0); const orderCount = daySales.reduce((sum, row) => sum + Number(row.completed_order_count || 0), 0);
     const confirmedExpenses = dayExpenses.reduce((sum, item) => sum + Number(item.total_amount || 0), 0);
@@ -119,7 +122,7 @@ export function buildFinanceReport({ from, to, salesRows = [], expenses = [], un
   const actualRows = series.filter(day => day.dataStatus !== 'forecast'); const forecastRows = series.filter(day => day.dataStatus === 'forecast');
   const totals = sumFinanceRows(series); const actualTotals = sumFinanceRows(actualRows); const forecastTotals = sumFinanceRows(forecastRows);
   const missingPayrollMonths = [...new Set(days.map(date => date.slice(0, 7)).filter(month => !payrollByMonth.has(month)))];
-  return { from, to, asOfDate, hasForecast: forecastRows.length > 0, totals: withFinanceRates(totals), actualTotals: withFinanceRates(actualTotals), forecastTotals: withFinanceRates(forecastTotals), forecast: { method: 'weekday_run_rate', baselineDays: baseline.length, variableExpenseRate: Math.round(variableExpenseRate * 1000) / 10 }, assumptions: { cardFeeRate: Number(cardFeeRate || 0), revenueRentRate: Number(revenueRentRate || 0) }, series, completeness: { payrollComplete: missingPayrollMonths.length === 0, missingPayrollMonths, reviewComplete: Number(unresolvedReceipts) === 0, unresolvedReceipts: Number(unresolvedReceipts), laborBasis: dailyLabor.basis } };
+  return { from, to, asOfDate, hasForecast: forecastRows.length > 0, totals: withFinanceRates(totals), actualTotals: withFinanceRates(actualTotals), forecastTotals: withFinanceRates(forecastTotals), forecast: { method: 'weekday_run_rate', baselineDays: baseline.length, variableExpenseRate: Math.round(variableExpenseRate * 1000) / 10 }, assumptions: { cardFeeRate: Number(cardFeeRate || 0), revenueRentRate: Number(revenueRentRate || 0) }, series, anomalies: { expenses: anomalousExpenses.map(item => ({ id: item.id, transactionDate: item.transaction_date, amount: Number(item.total_amount || 0), category: item.category || null })), count: anomalousExpenses.length, amount: anomalousExpenses.reduce((sum, item) => sum + Number(item.total_amount || 0), 0) }, completeness: { payrollComplete: missingPayrollMonths.length === 0, missingPayrollMonths, reviewComplete: Number(unresolvedReceipts) === 0 && anomalousExpenses.length === 0, unresolvedReceipts: Number(unresolvedReceipts), anomalousExpenses: anomalousExpenses.length, laborBasis: dailyLabor.basis } };
 }
 
 export function compareFinanceReports(current, previous) {
@@ -158,7 +161,8 @@ async function reportData(organizationId, from, to) {
   ]);
   const payrollLines = payrollDrafts.length ? await financeRest(`timefit_user_payroll_draft_lines?payroll_draft_id=in.(${payrollDrafts.map(item => encodeURIComponent(item.id)).join(',')})&select=payroll_draft_id,staff_id,pay_type,worked_minutes,completed_work_days,estimated_total`) : [];
   const report = buildFinanceReport({ from, to, salesRows, expenses, unreconciledCardTransactions: unresolvedCardRows, payrollDrafts, payrollLines, attendanceRecords, unresolvedReceipts: unresolvedDocuments.length, cardFeeRate: settingsRows[0]?.corporate_card_fee_rate ?? 0.022, revenueRentRate: settingsRows[0]?.revenue_rent_rate ?? 0.15 });
-  report.completeness = { ...report.completeness, ...buildCloseoutCompleteness({ expenses, unresolvedReceipts: unresolvedDocuments.length, unresolvedCardTransactions: unresolvedCardRows.length, unhealthyConnections: unhealthyConnections.length }) };
+  const reportableExpenses = expenses.filter(item => !isExpenseAmountAnomalous(item.total_amount));
+  report.completeness = { ...buildCloseoutCompleteness({ expenses: reportableExpenses, unresolvedReceipts: unresolvedDocuments.length, unresolvedCardTransactions: unresolvedCardRows.length, unhealthyConnections: unhealthyConnections.length }), ...report.completeness };
   report.completeness.closeoutReady = report.completeness.payrollComplete && report.completeness.reviewComplete && report.completeness.evidenceComplete && report.completeness.cardReconciliationComplete && report.completeness.cardSyncHealthy;
   return report;
 }

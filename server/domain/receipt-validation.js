@@ -1,3 +1,5 @@
+import { MAX_SINGLE_EXPENSE_AMOUNT } from './expense-amount-validation.js';
+
 const amount = value => Number.isFinite(Number(value)) ? Math.round(Number(value)) : null;
 
 export function receiptValidation(extracted = {}) {
@@ -11,6 +13,7 @@ export function receiptValidation(extracted = {}) {
   if (!extracted.merchantName) issues.push({ code: 'merchant_missing', field: 'merchantName', severity: 'required' });
   if (!/^20\d{2}-\d{2}-\d{2}$/.test(extracted.transactionDate || '')) issues.push({ code: 'date_missing', field: 'transactionDate', severity: 'required' });
   if (totalAmount === null || totalAmount <= 0) issues.push({ code: 'total_missing', field: 'totalAmount', severity: 'required' });
+  if (totalAmount !== null && totalAmount > MAX_SINGLE_EXPENSE_AMOUNT) issues.push({ code: 'total_amount_outlier', field: 'totalAmount', severity: 'required', maximum: MAX_SINGLE_EXPENSE_AMOUNT });
   if (totalAmount !== null && supplyAmount !== null && vatAmount !== null && supplyAmount + vatAmount + taxFreeAmount !== totalAmount) {
     issues.push({ code: 'tax_total_mismatch', field: 'totalAmount', severity: 'review' });
   }

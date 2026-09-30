@@ -183,6 +183,22 @@ test('매출·확정 지출·월 급여 초안으로 운영순익을 계산한�
   assert.equal(report.completeness.payrollComplete, true);
 });
 
+test('비정상적으로 큰 확정 지출은 결산 합계에서 격리한다', () => {
+  const report = buildFinanceReport({
+    from: '2026-09-01', to: '2026-09-01', asOfDate: '2026-09-02',
+    salesRows: [{ sales_date: '2026-09-01', completed_amount: 1000000, completed_order_count: 10 }],
+    expenses: [
+      { id: 'normal', transaction_date: '2026-09-01', total_amount: 200000, category: '재료비' },
+      { id: 'ocr-outlier', transaction_date: '2026-09-01', total_amount: 16677165153195, category: null },
+    ],
+  });
+  assert.equal(report.totals.confirmedExpenses, 200000);
+  assert.equal(report.totals.operatingProfit, 800000);
+  assert.equal(report.anomalies.count, 1);
+  assert.equal(report.anomalies.amount, 16677165153195);
+  assert.equal(report.completeness.reviewComplete, false);
+});
+
 test('버터빌라 손익 기준으로 구매비·카드수수료·매출연동 임대료를 계산한다', () => {
   const report = buildFinanceReport({
     from: '2026-09-01', to: '2026-09-01', cardFeeRate: 0.022, revenueRentRate: 0.15,
@@ -287,6 +303,7 @@ test('직접 지출은 총액과 공급가액·부가세 합계를 검증한다'
   assert.equal(validateManualExpense({ transactionDate: '2026-09-10', totalAmount: 11000, supplyAmount: 10000, vatAmount: 1000 }).error, undefined);
   assert.match(validateManualExpense({ transactionDate: '2026-09-10', totalAmount: 12000, supplyAmount: 10000, vatAmount: 1000 }).error, /일치/);
   assert.match(validateManualExpense({ transactionDate: '', totalAmount: 0 }).error, /거래일/);
+  assert.match(validateManualExpense({ transactionDate: '2026-09-10', totalAmount: 16677165153195 }).error, /1,000,000,000원 이하/);
 });
 
 test('지출 상세 API는 로그인하지 않은 원천자료 조회를 차단한다', async () => {
