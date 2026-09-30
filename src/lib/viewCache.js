@@ -4,10 +4,10 @@ const snapshots = new Map();
 const MAX_ENTRIES = 40;
 const TTL_MS = 30_000;
 
-export function readViewCache(key, now = Date.now()) {
+export function readViewCache(key, now = Date.now(), ttlMs = TTL_MS) {
   const snapshot = key && snapshots.get(key);
   if (!snapshot) return null;
-  if (now - snapshot.savedAt >= TTL_MS) { snapshots.delete(key); return null; }
+  if (now - snapshot.savedAt >= ttlMs) { snapshots.delete(key); return null; }
   return snapshot.data;
 }
 

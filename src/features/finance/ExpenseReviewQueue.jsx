@@ -12,12 +12,16 @@ import {
   reviewExpenseMatch,
   updateExpenseDraft,
 } from '../../lib/supabase';
+import { readViewCache, writeViewCache } from '../../lib/viewCache';
 
 const money = value => new Intl.NumberFormat('ko-KR', { style: 'currency', currency: 'KRW', maximumFractionDigits: 0 }).format(Number(value) || 0);
+const REVIEW_CACHE_TTL_MS = 5 * 60_000;
 
-export default function ExpenseReviewQueue({ organizationId, canReview = true, focusDocumentId = '' }) {
-  const [documents, setDocuments] = useState([]);
-  const [loading, setLoading] = useState(true);
+export default function ExpenseReviewQueue({ organizationId, accountId = '', canReview = true, focusDocumentId = '' }) {
+  const initialCacheKey = `expense-review:${accountId || 'account'}:${organizationId}:attention:all`;
+  const initialDocuments = readViewCache(initialCacheKey, Date.now(), REVIEW_CACHE_TTL_MS);
+  const [documents, setDocuments] = useState(initialDocuments || []);
+  const [loading, setLoading] = useState(!initialDocuments);
   const [busyId, setBusyId] = useState('');
   const [expandedId, setExpandedId] = useState('');
   const [message, setMessage] = useState('');
@@ -27,15 +31,26 @@ export default function ExpenseReviewQueue({ organizationId, canReview = true, f
   const [status, setStatus] = useState('attention');
   const [originalUrls, setOriginalUrls] = useState({});
   const focusedDocumentId = useRef('');
+  const cacheKey = `expense-review:${accountId || 'account'}:${organizationId}:${status}:${costCenterId || 'all'}`;
 
-  const refresh = async () => {
+  const applyDocuments = next => {
+    setDocuments(next);
+    const available = new Set(next.map(item => item.matches?.[0]).filter(match => match?.status === 'suggested' && Number(match.score) >= 95).map(match => match.id));
+    setSelectedIds(ids => ids.filter(id => available.has(id)));
+  };
+  const refresh = async ({ preserve = false } = {}) => {
     if (!organizationId) return;
-    setLoading(true);
-    try { const next = await loadExpenseReviewQueue(organizationId, status, costCenterId); setDocuments(next); const available = new Set(next.map(item => item.matches?.[0]).filter(match => match?.status === 'suggested' && Number(match.score) >= 95).map(match => match.id)); setSelectedIds(ids => ids.filter(id => available.has(id))); }
+    if (!preserve) setLoading(true);
+    try { const next = await loadExpenseReviewQueue(organizationId, status, costCenterId); writeViewCache(cacheKey, next); applyDocuments(next); }
     catch (error) { setMessage(error.message || '확인 필요 영수증을 불러오지 못했습니다.'); }
     finally { setLoading(false); }
   };
-  useEffect(() => { refresh(); }, [organizationId, status, costCenterId]);
+  useEffect(() => {
+    const cached = readViewCache(cacheKey, Date.now(), REVIEW_CACHE_TTL_MS);
+    if (cached) { applyDocuments(cached); setLoading(false); refresh({ preserve: true }); return; }
+    setDocuments([]);
+    refresh();
+  }, [cacheKey]);
   useEffect(() => { if (organizationId) loadCostCenters(organizationId).then(setCostCenters).catch(() => setCostCenters([])); }, [organizationId]);
   useEffect(() => {
     if (!focusDocumentId || loading || focusedDocumentId.current === focusDocumentId) return;
@@ -62,7 +77,7 @@ export default function ExpenseReviewQueue({ organizationId, canReview = true, f
     try {
       await reviewExpenseMatch({ organizationId, matchId: match.id, action });
       setMessage(action === 'confirm' ? '카드 거래와 영수증을 하나의 지출로 확정했어요.' : action === 'unlink' ? '카드 거래 연결을 해제했어요.' : '잘못된 후보를 반려했어요.');
-      await refresh();
+      await refresh({ preserve: true });
     } catch (error) { setMessage(error.message || '검토 결과를 저장하지 못했습니다.'); }
     finally { setBusyId(''); }
   };
@@ -71,14 +86,14 @@ export default function ExpenseReviewQueue({ organizationId, canReview = true, f
     event.preventDefault(); const form = new FormData(event.currentTarget); setBusyId(match.expense.id); setMessage('');
     try {
       await updateExpenseDraft({ organizationId, expenseId: match.expense.id, transactionDate: form.get('transactionDate'), totalAmount: form.get('totalAmount'), merchantName: form.get('merchantName'), merchantBusinessNumber: form.get('merchantBusinessNumber'), category: form.get('category'), reason: form.get('reason'), rememberRule: form.get('rememberRule') === 'on' });
-      setMessage(form.get('rememberRule') === 'on' ? '지출 정보를 수정하고 다음 영수증 자동 분류 규칙을 저장했어요.' : 'OCR 지출 정보를 수정했어요.'); await refresh();
+      setMessage(form.get('rememberRule') === 'on' ? '지출 정보를 수정하고 다음 영수증 자동 분류 규칙을 저장했어요.' : 'OCR 지출 정보를 수정했어요.'); await refresh({ preserve: true });
     } catch (error) { setMessage(error.message || '지출 정보를 수정하지 못했습니다.'); }
     finally { setBusyId(''); }
   };
 
   const saveDocument = async (event, document) => {
     event.preventDefault(); const form = new FormData(event.currentTarget); setBusyId(document.id); setMessage('수정 내용을 저장하고 다시 분석하고 있어요.');
-    try { await confirmReceiptSubmission({ organizationId, documentId: document.id, patch: { merchantName: form.get('merchantName'), transactionDate: form.get('transactionDate'), totalAmount: form.get('totalAmount'), costCenterId: form.get('costCenterId'), paymentMethod: form.get('paymentMethod') } }); setMessage('기본 정보를 저장했어요. OCR과 카드 내역을 다시 대조합니다.'); await refresh(); }
+    try { await confirmReceiptSubmission({ organizationId, documentId: document.id, patch: { merchantName: form.get('merchantName'), transactionDate: form.get('transactionDate'), totalAmount: form.get('totalAmount'), costCenterId: form.get('costCenterId'), paymentMethod: form.get('paymentMethod') } }); setMessage('기본 정보를 저장했어요. OCR과 카드 내역을 다시 대조합니다.'); await refresh({ preserve: true }); }
     catch (error) { setMessage(error.message || '영수증 기본 정보를 저장하지 못했습니다.'); }
     finally { setBusyId(''); }
   };
@@ -87,7 +102,7 @@ export default function ExpenseReviewQueue({ organizationId, canReview = true, f
     const expense = document.matches?.[0]?.expense || document.expense;
     if (!expense || !window.confirm('이 영수증을 지출 집계에서 제외할까요?')) return;
     setBusyId(expense.id); setMessage('');
-    try { await excludeExpenseDraft({ organizationId, expenseId: expense.id }); setMessage('영수증을 지출 집계에서 제외했어요.'); await refresh(); }
+    try { await excludeExpenseDraft({ organizationId, expenseId: expense.id }); setMessage('영수증을 지출 집계에서 제외했어요.'); await refresh({ preserve: true }); }
     catch (error) { setMessage(error.message || '영수증을 제외하지 못했습니다.'); }
     finally { setBusyId(''); }
   };
@@ -100,15 +115,15 @@ export default function ExpenseReviewQueue({ organizationId, canReview = true, f
   const bulkConfirm = async () => {
     if (!selectedIds.length || !window.confirm(`고신뢰 영수증 ${selectedIds.length}건을 카드 거래와 일괄 확정할까요?`)) return;
     setBusyId('bulk'); setMessage('');
-    try { const result = await bulkConfirmExpenseMatches({ organizationId, matchIds: selectedIds }); setMessage(`${result.confirmed}건을 일괄 확정했어요.${result.failed ? ` 실패 ${result.failed}건은 목록에 유지됩니다.` : ''}`); setSelectedIds([]); await refresh(); }
+    try { const result = await bulkConfirmExpenseMatches({ organizationId, matchIds: selectedIds }); setMessage(`${result.confirmed}건을 일괄 확정했어요.${result.failed ? ` 실패 ${result.failed}건은 목록에 유지됩니다.` : ''}`); setSelectedIds([]); await refresh({ preserve: true }); }
     catch (error) { setMessage(error.message || '일괄 확정을 완료하지 못했습니다.'); }
     finally { setBusyId(''); }
   };
 
   const retry = async document => {
     setBusyId(document.id); setMessage('영수증을 다시 분석하고 있어요.');
-    try { await processReceiptDocument({ organizationId, documentId: document.id }); setMessage('재분석을 완료했어요. 결과를 확인해 주세요.'); await refresh(); }
-    catch (error) { setMessage(error.message || '영수증 재분석을 완료하지 못했습니다.'); await refresh(); }
+    try { await processReceiptDocument({ organizationId, documentId: document.id }); setMessage('재분석을 완료했어요. 결과를 확인해 주세요.'); await refresh({ preserve: true }); }
+    catch (error) { setMessage(error.message || '영수증 재분석을 완료하지 못했습니다.'); await refresh({ preserve: true }); }
     finally { setBusyId(''); }
   };
 
@@ -116,7 +131,7 @@ export default function ExpenseReviewQueue({ organizationId, canReview = true, f
     const reason = window.prompt('직원이 수정해야 할 내용을 입력해 주세요.');
     if (!reason) return;
     setBusyId(document.id); setMessage('');
-    try { await requestReceiptChange({ organizationId, documentId: document.id, reason }); setMessage('직원에게 수정 요청을 보냈어요.'); await refresh(); }
+    try { await requestReceiptChange({ organizationId, documentId: document.id, reason }); setMessage('직원에게 수정 요청을 보냈어요.'); await refresh({ preserve: true }); }
     catch (error) { setMessage(error.message || '수정 요청을 저장하지 못했습니다.'); }
     finally { setBusyId(''); }
   };
@@ -124,7 +139,7 @@ export default function ExpenseReviewQueue({ organizationId, canReview = true, f
   const approveWithoutCard = async (document, expense) => {
     if (!expense || !window.confirm('카드 거래 연결 없이 이 지출을 확정할까요?')) return;
     setBusyId(document.id); setMessage('');
-    try { await approveReceiptExpense({ organizationId, documentId: document.id, expenseId: expense.id }); setMessage('영수증 지출을 확정했어요.'); await refresh(); }
+    try { await approveReceiptExpense({ organizationId, documentId: document.id, expenseId: expense.id }); setMessage('영수증 지출을 확정했어요.'); await refresh({ preserve: true }); }
     catch (error) { setMessage(error.message || '지출을 확정하지 못했습니다.'); }
     finally { setBusyId(''); }
   };

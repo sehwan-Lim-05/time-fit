@@ -945,7 +945,7 @@ function ExpenseWorkspace({ organizationId, accountId, employees, navigationCont
       {visited.has(id) && <>
       {id === 'overview' && <><FinanceReportDashboard organizationId={organizationId} onOpenPayroll={() => onNavigate('payroll')}/><ExpenseExceptionInbox organizationId={organizationId} onNavigate={fromException}/></>}
       {id === 'ledger' && <><ExpenseLedger organizationId={organizationId}/><ManualExpenseForm organizationId={organizationId} employees={employees}/></>}
-      {id === 'evidence' && <><ExpenseReviewQueue organizationId={organizationId} canReview={canReview} focusDocumentId={reviewDocumentId}/><ExpenseReminderSettings organizationId={organizationId}/></>}
+      {id === 'evidence' && <><ExpenseReviewQueue organizationId={organizationId} accountId={accountId} canReview={canReview} focusDocumentId={reviewDocumentId}/><ExpenseReminderSettings organizationId={organizationId}/></>}
       {id === 'cards' && <>{navigationContext?.cardReview && <CardReviewList accountId={accountId} organizationId={organizationId} month={navigationContext.month} onBack={() => onNavigate('dashboard')} onOpenReviewQueue={() => selectSection('evidence')}/>}<CorporateCards organizationId={organizationId} employees={employees}/></>}
       {id === 'settlement' && <FinanceDocuments organizationId={organizationId}/>}
       </>}
