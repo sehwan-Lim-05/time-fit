@@ -878,7 +878,7 @@ const EXPENSE_SECTIONS = [
   ['overview', '현황'], ['ledger', '지출 원장'], ['evidence', '증빙 검토'], ['cards', '법인카드'], ['settlement', '결산·문서'],
 ];
 
-function ManagerReceiptUpload({ organizationId, onClose, onUploaded }) {
+function ManagerReceiptUpload({ organizationId, onClose, onUploaded, onQueued }) {
   const [centers, setCenters] = useState([]); const [files, setFiles] = useState([]); const [busy, setBusy] = useState(false); const [message, setMessage] = useState(''); const [uploadedDocument, setUploadedDocument] = useState(null);
   useEffect(() => { loadCostCenters(organizationId).then(setCenters).catch(error => setMessage(error.message || '부서·섹션을 불러오지 못했습니다.')); }, [organizationId]);
   const selectFiles = async event => {
@@ -894,6 +894,7 @@ function ManagerReceiptUpload({ organizationId, onClose, onUploaded }) {
     try {
       const document = await createReceiptSubmission({ organizationId, files, costCenterId: form.get('costCenterId'), paymentMethod: form.get('paymentMethod'), submissionReason: String(form.get('reason') || '').trim(), source: 'manager_web' });
       await processReceiptDocument({ organizationId, documentId: document.id });
+      onQueued?.(document.id);
       setUploadedDocument(document);
       setMessage('검토 후 지출 원장과 운영손익에 반영될 예정입니다.');
     } catch (error) { setMessage(error.message || '영수증을 업로드하지 못했습니다.'); }
@@ -923,6 +924,7 @@ function ExpenseWorkspace({ organizationId, accountId, employees, navigationCont
   const [section, setSection] = useState(initialSection);
   const [showReceiptUpload, setShowReceiptUpload] = useState(false);
   const [reviewDocumentId, setReviewDocumentId] = useState('');
+  const [receiptRevision, setReceiptRevision] = useState(0);
   const [visited, setVisited] = useState(() => new Set([initialSection]));
   const selectSection = next => { setSection(next); setVisited(current => new Set([...current, next])); };
   useEffect(() => { if (navigationContext?.cardReview) selectSection('cards'); }, [navigationContext?.cardReview, navigationContext?.month]);
@@ -936,6 +938,7 @@ function ExpenseWorkspace({ organizationId, accountId, employees, navigationCont
     {showReceiptUpload && <ManagerReceiptUpload
       organizationId={organizationId}
       onClose={() => setShowReceiptUpload(false)}
+      onQueued={() => setReceiptRevision(value => value + 1)}
       onUploaded={documentId => { setShowReceiptUpload(false); setReviewDocumentId(documentId); selectSection('evidence'); }}
     />}
     <div className="expense-workspace-tabs" role="tablist" aria-label="지출·증빙 업무">
@@ -943,9 +946,9 @@ function ExpenseWorkspace({ organizationId, accountId, employees, navigationCont
     </div>
     {EXPENSE_SECTIONS.map(([id]) => <div key={id} id={`expense-panel-${id}`} role="tabpanel" aria-labelledby={`expense-tab-${id}`} hidden={section !== id}>
       {visited.has(id) && <>
-      {id === 'overview' && <><FinanceReportDashboard organizationId={organizationId} onOpenPayroll={() => onNavigate('payroll')}/><ExpenseExceptionInbox organizationId={organizationId} onNavigate={fromException}/></>}
+      {id === 'overview' && <><FinanceReportDashboard organizationId={organizationId} onOpenPayroll={() => onNavigate('payroll')}/><ExpenseExceptionInbox organizationId={organizationId} onNavigate={fromException} refreshToken={receiptRevision}/></>}
       {id === 'ledger' && <><ExpenseLedger organizationId={organizationId}/><ManualExpenseForm organizationId={organizationId} employees={employees}/></>}
-      {id === 'evidence' && <><ExpenseReviewQueue organizationId={organizationId} accountId={accountId} canReview={canReview} focusDocumentId={reviewDocumentId}/><ExpenseReminderSettings organizationId={organizationId}/></>}
+      {id === 'evidence' && <><ExpenseReviewQueue organizationId={organizationId} accountId={accountId} canReview={canReview} focusDocumentId={reviewDocumentId} refreshToken={receiptRevision}/><ExpenseReminderSettings organizationId={organizationId}/></>}
       {id === 'cards' && <>{navigationContext?.cardReview && <CardReviewList accountId={accountId} organizationId={organizationId} month={navigationContext.month} onBack={() => onNavigate('dashboard')} onOpenReviewQueue={() => selectSection('evidence')}/>}<CorporateCards organizationId={organizationId} employees={employees}/></>}
       {id === 'settlement' && <FinanceDocuments organizationId={organizationId}/>}
       </>}
