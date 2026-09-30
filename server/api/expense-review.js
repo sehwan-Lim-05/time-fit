@@ -33,7 +33,7 @@ export default async function handler(req, res) {
       const requestedStatus = req.query?.status;
       const allowedReviews = ['submitted','submitter_review','manager_review','change_requested','approved','rejected','withdrawn'];
       const statusFilter = requestedStatus === 'attention' || !requestedStatus
-        ? 'or=(processing_status.in.(uploaded,queued,processing,failed),review_status.in.(submitted,submitter_review,manager_review,change_requested))'
+        ? 'or=(processing_status.in.(uploaded,queued,processing,failed),review_status.in.(submitted,submitter_review,manager_review,change_requested,resubmitted))'
         : requestedStatus === 'failed' ? 'processing_status=eq.failed'
           : requestedStatus === 'processing' ? 'processing_status=in.(uploaded,queued,processing)'
           : `review_status=eq.${encodeURIComponent(allowedReviews.includes(requestedStatus) ? requestedStatus : 'manager_review')}`;

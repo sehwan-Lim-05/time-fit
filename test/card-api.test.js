@@ -366,6 +366,20 @@ test('오래된 미증빙 거래와 OCR 실패를 긴급 예외로 우선 정렬
   assert.equal(result.summary.missingReceipts, 1);
 });
 
+test('업로드 직후와 관리자 검토 대기 영수증을 현황 예외 업무함에 표시한다', () => {
+  const result = buildExpenseExceptions({
+    now: new Date('2026-09-10T12:00:00Z'),
+    documents: [
+      { id: 'queued', title: '업로드 영수증', processing_status: 'queued', review_status: 'submitted', created_at: '2026-09-10T11:59:00Z' },
+      { id: 'review', title: '검토 영수증', processing_status: 'ready', review_status: 'manager_review', extracted_data: { merchantName: '식자재마트', totalAmount: 120000 }, created_at: '2026-09-10T11:00:00Z' },
+    ],
+  });
+  assert.equal(result.summary.receiptReviews, 2);
+  assert.equal(result.items.find(item => item.id === 'document:queued').severity, 'info');
+  assert.match(result.items.find(item => item.id === 'document:queued').title, /분석 중/);
+  assert.match(result.items.find(item => item.id === 'document:review').description, /식자재마트.*120,000원/);
+});
+
 test('영수증 알림은 설정 주기에 맞춰 한 단계씩 생성하고 최대 횟수를 지킨다', () => {
   const now = new Date('2026-09-10T00:00:00Z');
   assert.equal(dueReminderNumber({ approvedAt: '2026-09-08T00:00:00Z', now }), null);

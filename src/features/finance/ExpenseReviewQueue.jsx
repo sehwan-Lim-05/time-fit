@@ -17,7 +17,7 @@ import { readViewCache, writeViewCache } from '../../lib/viewCache';
 const money = value => new Intl.NumberFormat('ko-KR', { style: 'currency', currency: 'KRW', maximumFractionDigits: 0 }).format(Number(value) || 0);
 const REVIEW_CACHE_TTL_MS = 5 * 60_000;
 
-export default function ExpenseReviewQueue({ organizationId, accountId = '', canReview = true, focusDocumentId = '' }) {
+export default function ExpenseReviewQueue({ organizationId, accountId = '', canReview = true, focusDocumentId = '', refreshToken = 0 }) {
   const initialCacheKey = `expense-review:${accountId || 'account'}:${organizationId}:attention:all`;
   const initialDocuments = readViewCache(initialCacheKey, Date.now(), REVIEW_CACHE_TTL_MS);
   const [documents, setDocuments] = useState(initialDocuments || []);
@@ -51,6 +51,12 @@ export default function ExpenseReviewQueue({ organizationId, accountId = '', can
     setDocuments([]);
     refresh();
   }, [cacheKey]);
+  useEffect(() => { if (refreshToken > 0) refresh({ preserve: true }); }, [refreshToken]);
+  useEffect(() => {
+    if (!documents.some(item => ['uploaded','queued','processing'].includes(item.processing_status))) return undefined;
+    const timer = window.setInterval(() => refresh({ preserve: true }), 3000);
+    return () => window.clearInterval(timer);
+  }, [documents, cacheKey]);
   useEffect(() => { if (organizationId) loadCostCenters(organizationId).then(setCostCenters).catch(() => setCostCenters([])); }, [organizationId]);
   useEffect(() => {
     if (!focusDocumentId || loading || focusedDocumentId.current === focusDocumentId) return;
