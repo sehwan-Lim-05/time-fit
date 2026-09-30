@@ -5,6 +5,7 @@ import { extractReceiptWithLlm, mergeReceiptExtractions } from './_receipt-llm.j
 import { receiptValidation } from '../domain/receipt-validation.js';
 import { extractSpatialReceipt, normalizeOcrNumber } from '../domain/receipt-spatial-extraction.js';
 import { expenseAmountError } from '../domain/expense-amount-validation.js';
+import { findPriorMerchantClassification, inferExpenseCategory } from '../domain/expense-classification.js';
 
 const extractAmount = text => {
   const dailySales = [...text.matchAll(/금일[ \t]*매출액[ \t]*[:：]?[ \t]*[₩￦]?[ \t]*([0-9][0-9,. \t]*)/gi)].map(match => normalizeOcrNumber(match[1])).filter(value => Number.isFinite(value) && value > 0);
@@ -196,7 +197,14 @@ export async function processReceiptRun({ organizationId, documentId, runId }) {
     let extracted = mergeReceiptExtractions(ruleBased, llmResult);
     const rules = await financeRest(`timefit_user_expense_classification_rules?organization_id=eq.${encodeURIComponent(organizationId)}&is_active=eq.true&select=id,match_type,match_value,category,default_reason,priority,is_active,hit_count&order=priority.desc&limit=200`);
     const classificationRule = matchingClassificationRule(extracted, rules);
-    if (classificationRule) extracted = { ...extracted, category: classificationRule.category, appliedRuleId: classificationRule.id, appliedRuleReason: classificationRule.default_reason || null };
+    if (classificationRule) {
+      extracted = { ...extracted, category: classificationRule.category, categorySource: 'rule', categoryConfidence: 1, appliedRuleId: classificationRule.id, appliedRuleReason: classificationRule.default_reason || null };
+    } else {
+      const recentExpenses = await financeRest(`timefit_user_expenses?organization_id=eq.${encodeURIComponent(organizationId)}&category=not.is.null&merchant_name=not.is.null&status=neq.excluded&select=merchant_name,merchant_business_number,category,classification_rule_id,created_at&order=created_at.desc&limit=200`);
+      const prior = findPriorMerchantClassification(extracted, recentExpenses);
+      const inferred = prior ? { category: prior.category, source: 'merchant_history', confidence: 0.9 } : inferExpenseCategory(extracted);
+      extracted = { ...extracted, category: inferred.category, categorySource: inferred.source, categoryConfidence: inferred.confidence, appliedRuleId: prior?.classification_rule_id || null };
+    }
     const validation = receiptValidation(extracted);
     const extraction = await saveExtraction({ organizationId, document, runId, rawText: text, extracted, validation, model: llmResult?.model });
     const fingerprint = receiptFingerprint(extracted);

@@ -6,6 +6,21 @@ const koreaDateKey = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Se
 const daysBetween = (from, to) => Math.floor((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000) + 1;
 const datesInRange = (from, to) => Array.from({ length: daysBetween(from, to) }, (_, index) => new Date(Date.parse(`${from}T00:00:00Z`) + index * 86400000).toISOString().slice(0, 10));
 const monthDays = date => new Date(Number(date.slice(0, 4)), Number(date.slice(5, 7)), 0).getDate();
+const merchantKey = value => String(value || '').toLowerCase().replace(/주식회사|\(주\)|㈜/g, '').replace(/[^0-9a-z가-힣]/g, '') || '미확인업체';
+
+export function buildMerchantExpenseGroups(expenses = []) {
+  const groups = new Map();
+  expenses.filter(item => !isExpenseAmountAnomalous(item.total_amount)).forEach(expense => {
+    const key = merchantKey(expense.merchant_name); const amount = Number(expense.total_amount || 0);
+    const group = groups.get(key) || { merchantName: expense.merchant_name || '업체 미확인', totalAmount: 0, receiptCount: 0, categories: {}, uploads: [] };
+    group.totalAmount += amount; group.receiptCount += 1;
+    const category = String(expense.category || '').trim() || '미분류';
+    group.categories[category] = (group.categories[category] || 0) + amount;
+    group.uploads.push({ expenseId: expense.id, transactionDate: dateOnly(expense.transaction_date), amount, category, lineItems: (expense.lineItems || []).map(item => ({ id: item.id, name: item.item_name_normalized || item.item_name_raw || '품목 미확인', quantity: item.quantity, unit: item.unit, amount: Number(item.line_amount || 0) })).sort((a, b) => String(a.id).localeCompare(String(b.id))) });
+    groups.set(key, group);
+  });
+  return [...groups.values()].map(group => ({ ...group, category: Object.entries(group.categories).sort((a, b) => b[1] - a[1])[0]?.[0] || '미분류', uploads: group.uploads.sort((a, b) => b.transactionDate.localeCompare(a.transactionDate)) })).sort((a, b) => b.totalAmount - a.totalAmount);
+}
 
 export function previousFinanceRange(from, to, periodType = null) {
   if (periodType === 'monthly') {
@@ -122,7 +137,7 @@ export function buildFinanceReport({ from, to, salesRows = [], expenses = [], un
   const actualRows = series.filter(day => day.dataStatus !== 'forecast'); const forecastRows = series.filter(day => day.dataStatus === 'forecast');
   const totals = sumFinanceRows(series); const actualTotals = sumFinanceRows(actualRows); const forecastTotals = sumFinanceRows(forecastRows);
   const missingPayrollMonths = [...new Set(days.map(date => date.slice(0, 7)).filter(month => !payrollByMonth.has(month)))];
-  return { from, to, asOfDate, hasForecast: forecastRows.length > 0, totals: withFinanceRates(totals), actualTotals: withFinanceRates(actualTotals), forecastTotals: withFinanceRates(forecastTotals), forecast: { method: 'weekday_run_rate', baselineDays: baseline.length, variableExpenseRate: Math.round(variableExpenseRate * 1000) / 10 }, assumptions: { cardFeeRate: Number(cardFeeRate || 0), revenueRentRate: Number(revenueRentRate || 0) }, series, anomalies: { expenses: anomalousExpenses.map(item => ({ id: item.id, transactionDate: item.transaction_date, amount: Number(item.total_amount || 0), category: item.category || null })), count: anomalousExpenses.length, amount: anomalousExpenses.reduce((sum, item) => sum + Number(item.total_amount || 0), 0) }, completeness: { payrollComplete: missingPayrollMonths.length === 0, missingPayrollMonths, reviewComplete: Number(unresolvedReceipts) === 0 && anomalousExpenses.length === 0, unresolvedReceipts: Number(unresolvedReceipts), anomalousExpenses: anomalousExpenses.length, laborBasis: dailyLabor.basis } };
+  return { from, to, asOfDate, hasForecast: forecastRows.length > 0, totals: withFinanceRates(totals), actualTotals: withFinanceRates(actualTotals), forecastTotals: withFinanceRates(forecastTotals), merchantExpenseGroups: buildMerchantExpenseGroups(reportableExpenses), forecast: { method: 'weekday_run_rate', baselineDays: baseline.length, variableExpenseRate: Math.round(variableExpenseRate * 1000) / 10 }, assumptions: { cardFeeRate: Number(cardFeeRate || 0), revenueRentRate: Number(revenueRentRate || 0) }, series, anomalies: { expenses: anomalousExpenses.map(item => ({ id: item.id, transactionDate: item.transaction_date, amount: Number(item.total_amount || 0), category: item.category || null })), count: anomalousExpenses.length, amount: anomalousExpenses.reduce((sum, item) => sum + Number(item.total_amount || 0), 0) }, completeness: { payrollComplete: missingPayrollMonths.length === 0, missingPayrollMonths, reviewComplete: Number(unresolvedReceipts) === 0 && anomalousExpenses.length === 0, unresolvedReceipts: Number(unresolvedReceipts), anomalousExpenses: anomalousExpenses.length, laborBasis: dailyLabor.basis } };
 }
 
 export function compareFinanceReports(current, previous) {
@@ -151,7 +166,7 @@ async function reportData(organizationId, from, to) {
   const monthFrom = `${from.slice(0, 7)}-01`; const monthTo = `${to.slice(0, 7)}-${String(monthDays(to)).padStart(2, '0')}`;
   const [salesRows, expenses, payrollDrafts, unresolvedDocuments, attendanceRecords, unresolvedCardRows, unhealthyConnections, settingsRows] = await Promise.all([
     financeRest(`timefit_user_tossplace_daily_sales?organization_id=eq.${encodeURIComponent(organizationId)}&sales_date=gte.${from}&sales_date=lte.${to}&select=sales_date,completed_amount,completed_order_count`),
-    financeRest(`timefit_user_expenses?organization_id=eq.${encodeURIComponent(organizationId)}&status=eq.confirmed&transaction_date=gte.${from}&transaction_date=lte.${to}&select=id,transaction_date,total_amount,category,sources:timefit_user_expense_sources(source_type)`),
+    financeRest(`timefit_user_expenses?organization_id=eq.${encodeURIComponent(organizationId)}&status=eq.confirmed&transaction_date=gte.${from}&transaction_date=lte.${to}&select=id,transaction_date,total_amount,merchant_name,category,sources:timefit_user_expense_sources(source_type),lineItems:timefit_user_receipt_line_items(id,line_number,item_name_raw,item_name_normalized,quantity,unit,line_amount)`),
     financeRest(`timefit_user_payroll_drafts?organization_id=eq.${encodeURIComponent(organizationId)}&settlement_month=gte.${from.slice(0,7)}-01&settlement_month=lte.${to.slice(0,7)}-01&select=id,settlement_month,status`),
     financeRest(`timefit_user_finance_documents?organization_id=eq.${encodeURIComponent(organizationId)}&document_type=eq.receipt&processing_status=in.(queued,processing,review_required,failed)&document_date=gte.${from}&document_date=lte.${to}&select=id`),
     financeRest(`timefit_user_attendance_records?organization_id=eq.${encodeURIComponent(organizationId)}&work_date=gte.${monthFrom}&work_date=lte.${monthTo}&checked_out_at=not.is.null&select=staff_id,work_date,checked_in_at,checked_out_at`),

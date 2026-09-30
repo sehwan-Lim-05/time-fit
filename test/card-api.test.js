@@ -6,7 +6,8 @@ import cardSync from '../server/api/card-sync.js';
 import cardSyncWorker from '../server/api/card-sync-worker.js';
 import { matchScore, matchingClassificationRule, receiptFingerprint, receiptRetryBlocker, structuredReceipt } from '../server/api/receipt-process.js';
 import expenseReview, { eligibleBulkMatches } from '../server/api/expense-review.js';
-import { buildCloseoutCompleteness, buildDailyLaborMap, buildFinanceReport, compareFinanceReports, groupFinanceSeries, previousFinanceRange } from '../server/api/finance-report.js';
+import { buildCloseoutCompleteness, buildDailyLaborMap, buildFinanceReport, buildMerchantExpenseGroups, compareFinanceReports, groupFinanceSeries, previousFinanceRange } from '../server/api/finance-report.js';
+import { findPriorMerchantClassification, inferExpenseCategory } from '../server/domain/expense-classification.js';
 import closeouts from '../server/api/closeouts.js';
 import { mergeReceiptExtractions, validateReceiptExtraction } from '../server/api/_receipt-llm.js';
 import { buildExpenseExceptions } from '../server/api/expense-exceptions.js';
@@ -437,6 +438,25 @@ test('사업자번호 분류 규칙을 상호 규칙보다 우선 적용한다',
     ],
   );
   assert.equal(rule.id, 'business-rule'); assert.equal(rule.category, '재료비');
+});
+
+test('기존 업체 분류를 우선 재사용하고 신규 식자재 업체는 품목으로 분류한다', () => {
+  const prior = findPriorMerchantClassification(
+    { merchantName: '(주) 지프레시' },
+    [{ merchant_name: '주식회사 지프레시', category: '주방 식자재' }],
+  );
+  assert.equal(prior.category, '주방 식자재');
+  assert.deepEqual(inferExpenseCategory({ merchantName: '새로운 거래처', lineItems: [{ itemNameRaw: '버터 10개' }] }).category, '재료비');
+});
+
+test('같은 업체 지출은 합산하되 영수증 날짜와 품목은 업로드별로 보존한다', () => {
+  const groups = buildMerchantExpenseGroups([
+    { id: 'expense-1', merchant_name: '주식회사 지프레시', transaction_date: '2026-09-01', total_amount: 100000, category: '재료비', lineItems: [{ id: 'line-1', item_name_raw: '버터', quantity: 2, unit: '개', line_amount: 100000 }] },
+    { id: 'expense-2', merchant_name: '(주) 지프레시', transaction_date: '2026-09-08', total_amount: 53195, category: '재료비', lineItems: [{ id: 'line-2', item_name_raw: '우유', quantity: 1, unit: '박스', line_amount: 53195 }] },
+  ]);
+  assert.equal(groups.length, 1); assert.equal(groups[0].totalAmount, 153195); assert.equal(groups[0].receiptCount, 2);
+  assert.deepEqual(groups[0].uploads.map(upload => upload.transactionDate), ['2026-09-08','2026-09-01']);
+  assert.equal(groups[0].uploads[1].lineItems[0].name, '버터');
 });
 
 test('일괄 확정은 영수증별 95점 이상 최상위 후보만 허용한다', () => {
