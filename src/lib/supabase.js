@@ -769,7 +769,7 @@ export async function runMonthEndOperations({ organizationId, targetMonth }) {
 }
 export async function createManualStaff({ organizationId, name, phone, department, categoryId, jobTitle, payType, hourlyWage, dailyWage, monthlySalary, annualSalary, joinedOn }) {
   const { data, error } = await requireClient().rpc('timefit_user_create_manual_staff', {
-    p_name: name, p_phone: phone, p_department: department || null, p_job_title: jobTitle || null,
+    p_organization_id: organizationId, p_name: name, p_phone: phone, p_department: department || null, p_job_title: jobTitle || null,
     p_pay_type: payType, p_hourly_wage: hourlyWage || null, p_daily_wage: dailyWage || null, p_monthly_salary: monthlySalary || null, p_annual_salary: annualSalary || null, p_joined_on: joinedOn || null, p_category_id: categoryId || null,
   });
   if (error) throw error; return data;

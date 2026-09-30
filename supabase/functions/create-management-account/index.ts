@@ -16,7 +16,11 @@ Deno.serve(async request => {
     const password = String(body.temporaryPassword || '')
     const displayName = String(body.displayName || '').trim()
     const roleCode = String(body.roleCode || '')
-    const permissions = Array.isArray(body.permissions) ? body.permissions : []
+    const requestedPermissions = Array.isArray(body.permissions) ? body.permissions.map(String) : []
+    const permissions = [...new Set([
+      ...requestedPermissions,
+      ...(requestedPermissions.includes('employee.manage') ? ['employee.view'] : []),
+    ])]
     const categoryIds = Array.isArray(body.categoryIds) ? body.categoryIds : []
     const costCenterIds = Array.isArray(body.costCenterIds) ? body.costCenterIds : []
     if (!organizationId || !/^[a-z0-9._-]{4,30}$/.test(loginId) || password.length < 8 || !displayName || !['manager','executive_chef'].includes(roleCode)) throw new Error('invalid_management_account_input')

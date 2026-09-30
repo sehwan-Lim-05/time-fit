@@ -2,7 +2,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.49.4'
 
 const headers = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Content-Type': 'application/json' }
 const permissionCodes = new Set([
-  'dashboard.view','attendance.view','schedule.view','schedule.manage','leave.view','leave.review','payroll.view','employee.view',
+  'dashboard.view','attendance.view','schedule.view','schedule.manage','leave.view','leave.review','payroll.view','employee.view','employee.manage',
   'sales.view','sales.sync','settings.manage','finance.view','expense.manage','expense.receipt.review','expense.card.manage','expense.closeout.manage','expense.export',
 ])
 
@@ -29,7 +29,11 @@ Deno.serve(async request => {
     if (action !== 'update') throw new Error('invalid_management_account_action')
     const roleCode = String(body.roleCode || '')
     const status = String(body.status || '')
-    const permissions = [...new Set((Array.isArray(body.permissions) ? body.permissions : []).map(String))]
+    const requestedPermissions = [...new Set((Array.isArray(body.permissions) ? body.permissions : []).map(String))]
+    const permissions = [...new Set([
+      ...requestedPermissions,
+      ...(requestedPermissions.includes('employee.manage') ? ['employee.view'] : []),
+    ])]
     const categoryIds = [...new Set((Array.isArray(body.categoryIds) ? body.categoryIds : []).map(String))]
     const costCenterIds = [...new Set((Array.isArray(body.costCenterIds) ? body.costCenterIds : []).map(String))]
     if (!['manager','executive_chef'].includes(roleCode) || !['active','suspended'].includes(status) || permissions.some(code => !permissionCodes.has(code))) throw new Error('invalid_management_account_input')
