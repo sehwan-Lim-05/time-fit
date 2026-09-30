@@ -4,6 +4,7 @@ import { authorizeFinance, authorizeOrganizationMember, canAccessFinanceCostCent
 import { extractReceiptWithLlm, mergeReceiptExtractions } from './_receipt-llm.js';
 import { receiptValidation } from '../domain/receipt-validation.js';
 import { extractSpatialReceipt, normalizeOcrNumber } from '../domain/receipt-spatial-extraction.js';
+import { expenseAmountError } from '../domain/expense-amount-validation.js';
 
 const extractAmount = text => {
   const dailySales = [...text.matchAll(/금일[ \t]*매출액[ \t]*[:：]?[ \t]*[₩￦]?[ \t]*([0-9][0-9,. \t]*)/gi)].map(match => normalizeOcrNumber(match[1])).filter(value => Number.isFinite(value) && value > 0);
@@ -307,6 +308,7 @@ export default async function handler(req, res) {
       const totalAmount = Number(input.totalAmount ?? current.totalAmount);
       const transactionDate = String(input.transactionDate ?? current.transactionDate ?? '');
       if (!/^20\d{2}-\d{2}-\d{2}$/.test(transactionDate) || !Number.isFinite(totalAmount) || totalAmount <= 0) return res.status(400).json({ ok: false, error: '거래일과 총금액을 확인해 주세요.' });
+      if (expenseAmountError(totalAmount)) return res.status(400).json({ ok: false, code: 'expense_amount_outlier', error: expenseAmountError(totalAmount) });
       const next = { ...current, merchantName: String(input.merchantName ?? current.merchantName ?? '').trim() || null, transactionDate, totalAmount };
       await financeRest(`timefit_user_finance_documents?id=eq.${encodeURIComponent(documentId)}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ extracted_data: next, cost_center_id: input.costCenterId || document.cost_center_id, payment_method: input.paymentMethod || document.payment_method, review_status: 'resubmitted', submitter_confirmed_at: new Date().toISOString(), change_requested_at: null, change_request_reason: null }) });
       const expenseId = await expenseForDocument(organizationId, documentId);

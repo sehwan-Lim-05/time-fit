@@ -1,5 +1,6 @@
 import { authorizeFinance, canAccessFinanceCostCenter, financeError, financeRest, financeServerConfigured, methodNotAllowed, serviceHeaders } from './_finance-server.js';
 import { recoverStaleReceiptRuns } from './receipt-process.js';
+import { expenseAmountError } from '../domain/expense-amount-validation.js';
 
 async function userRpc(token, name, body) {
   const response = await fetch(`${process.env.SUPABASE_URL}/rest/v1/rpc/${name}`, {
@@ -52,6 +53,7 @@ export default async function handler(req, res) {
       const { expenseId, transactionDate, totalAmount, merchantName, merchantBusinessNumber, category, reason, rememberRule } = req.body || {};
       const amount = Number(totalAmount);
       if (!expenseId || !transactionDate || !Number.isFinite(amount) || amount < 0) return res.status(400).json({ ok: false, error: '거래일과 총금액을 확인해 주세요.' });
+      if (expenseAmountError(amount)) return res.status(400).json({ ok: false, code: 'expense_amount_outlier', error: expenseAmountError(amount) });
       const rows = await financeRest(`timefit_user_expenses?id=eq.${encodeURIComponent(expenseId)}&organization_id=eq.${encodeURIComponent(organizationId)}&select=id,status`);
       if (!rows.length) return res.status(404).json({ ok: false, error: '지출 초안을 찾을 수 없습니다.' });
       if (rows[0].status === 'excluded') return res.status(409).json({ ok: false, error: '제외된 지출은 수정할 수 없습니다.' });
@@ -79,6 +81,9 @@ export default async function handler(req, res) {
         return res.status(200).json({ ok: true, result });
       }
       const expenseId = String(req.body?.expenseId || '');
+      const expenses = await financeRest(`timefit_user_expenses?id=eq.${encodeURIComponent(expenseId)}&organization_id=eq.${encodeURIComponent(organizationId)}&select=id,total_amount,status&limit=1`);
+      if (!expenses[0]) return res.status(404).json({ ok: false, error: '확정할 지출을 찾을 수 없습니다.' });
+      if (expenseAmountError(expenses[0].total_amount)) return res.status(409).json({ ok: false, code: 'expense_amount_outlier', error: expenseAmountError(expenses[0].total_amount) });
       const result = await userRpc(auth.token, 'timefit_user_review_receipt', { p_document_id: documentId, p_action: action, p_reason: null, p_expense_id: expenseId });
       return res.status(200).json({ ok: true, result });
     }

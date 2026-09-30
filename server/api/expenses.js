@@ -1,4 +1,5 @@
 import { authorizeFinance, financeError, financeRest, financeServerConfigured, methodNotAllowed } from './_finance-server.js';
+import { expenseAmountError } from '../domain/expense-amount-validation.js';
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 export function summarizeExpenses(items = []) {
@@ -13,6 +14,7 @@ export function summarizeExpenses(items = []) {
 export function validateManualExpense(input = {}) {
   const total = Number(input.totalAmount); const supply = input.supplyAmount === '' || input.supplyAmount == null ? null : Number(input.supplyAmount); const vat = input.vatAmount === '' || input.vatAmount == null ? null : Number(input.vatAmount);
   if (!DATE_PATTERN.test(input.transactionDate || '') || !Number.isInteger(total) || total <= 0) return { error: '거래일과 총금액을 확인해 주세요.' };
+  if (expenseAmountError(total)) return { error: expenseAmountError(total) };
   if ((supply == null) !== (vat == null) || (supply != null && (!Number.isInteger(supply) || !Number.isInteger(vat) || supply < 0 || vat < 0 || supply + vat !== total))) return { error: '공급가액과 부가세의 합계가 총금액과 일치해야 합니다.' };
   return { transactionDate: input.transactionDate, totalAmount: total, supplyAmount: supply, vatAmount: vat, merchantName: String(input.merchantName || '').trim(), category: String(input.category || '').trim(), reason: String(input.reason || '').trim(), staffId: input.staffId || null, allowDuplicate: Boolean(input.allowDuplicate) };
 }
