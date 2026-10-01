@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { uploadReceiptToGoogleDrive } from '../../lib/supabase';
+import { loadDriveReceiptUploads, uploadReceiptToGoogleDrive } from '../../lib/supabase';
 
 export default function EmployeeReceiptSubmission({ organizationId, employee }) {
   const [files, setFiles] = useState([]);
@@ -9,6 +9,10 @@ export default function EmployeeReceiptSubmission({ organizationId, employee }) 
   const previews = useMemo(() => files.filter(file => file.type.startsWith('image/')).map(file => ({ file, url: URL.createObjectURL(file) })), [files]);
 
   useEffect(() => () => previews.forEach(item => URL.revokeObjectURL(item.url)), [previews]);
+  useEffect(() => {
+    if (!organizationId) return;
+    loadDriveReceiptUploads(organizationId).then(setUploadedFiles).catch(() => setMessage('저장된 영수증 목록을 불러오지 못했습니다.'));
+  }, [organizationId]);
 
   const selectFiles = event => {
     const selected = Array.from(event.target.files || []).slice(0, 20);
@@ -18,12 +22,13 @@ export default function EmployeeReceiptSubmission({ organizationId, employee }) 
 
   const submit = async event => {
     event.preventDefault();
+    const form = event.currentTarget;
     if (!files.length) return setMessage('촬영한 영수증 또는 파일을 선택해 주세요.');
     setBusy(true); setMessage('Google Drive에 원본을 저장하고 있어요.');
     try {
       const uploaded = [];
       for (const file of files) uploaded.push(await uploadReceiptToGoogleDrive({ organizationId, file }));
-      setUploadedFiles(uploaded); setFiles([]); event.currentTarget.reset();
+      setUploadedFiles(current => [...uploaded, ...current]); setFiles([]); form.reset();
       setMessage('원본 저장이 완료됐습니다. 아래 링크에서 파일을 확인할 수 있어요.');
     } catch (error) { setMessage(error.message || 'Google Drive에 영수증을 업로드하지 못했습니다.'); }
     finally { setBusy(false); }
@@ -41,12 +46,12 @@ export default function EmployeeReceiptSubmission({ organizationId, employee }) 
         {uploadedFiles.map((file, index) => <a key={file.id} className="outline" href={file.webViewLink} target="_blank" rel="noreferrer">{index + 1}. {file.name || '영수증 원본'} 열기</a>)}
         <button type="button" className="outline" onClick={() => { setUploadedFiles([]); setMessage(''); }}>다른 영수증 업로드</button>
       </div>}
-      {!uploadedFiles.length && <form onSubmit={submit}>
+      <form onSubmit={submit}>
         <label className="receipt-camera-input"><input name="receipt" type="file" accept="image/*,application/pdf" capture="environment" multiple onChange={selectFiles}/><strong>{files.length ? `${files.length}개 파일 선택됨` : '카메라로 촬영 또는 파일 선택'}</strong><span>원본 그대로 Google Drive에 저장 · 파일당 최대 20MB</span></label>
         {previews.length > 0 && <div className="receipt-preview-strip">{previews.map((item, index) => <figure key={`${item.file.name}-${index}`}><img src={item.url} alt={`영수증 ${index + 1} 미리보기`}/><figcaption>{index + 1}번</figcaption></figure>)}<button type="button" className="outline" onClick={() => setFiles([])}>다시 선택</button></div>}
         <button className="cta receipt-submit-button" disabled={busy || !files.length}>{busy ? 'Drive 저장 중…' : 'Google Drive에 저장'}</button>
-      </form>}
-      {message && !uploadedFiles.length && <p className={/못|필요|실패/.test(message) ? 'receipt-submit-message error' : 'receipt-submit-message'}>{message}</p>}
+      </form>
+      {message && <p className={/못|필요|실패/.test(message) ? 'receipt-submit-message error' : 'receipt-submit-message'}>{message}</p>}
     </section>
   </>;
 }
