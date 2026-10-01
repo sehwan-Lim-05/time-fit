@@ -11,16 +11,12 @@ import { OperationsHome, WeeklyFeedback, AttendanceIssueList, CardReviewList } f
 import { attendanceIssues, payrollAttendanceRange, staffTodayStatus } from '../shared/operations.js';
 import { invalidateViewCache, readViewCache, writeViewCache } from './lib/viewCache';
 import CardConnectionWizard from './features/finance/CardConnectionWizard';
-import ExpenseReviewQueue from './features/finance/ExpenseReviewQueue';
 import FinanceReportDashboard from './features/finance/FinanceReportDashboard';
 import ExpenseExceptionInbox from './features/finance/ExpenseExceptionInbox';
 import EmployeeReceiptSubmission from './features/finance/EmployeeReceiptSubmission';
-import ExpenseReminderSettings from './features/finance/ExpenseReminderSettings';
 import ExpenseLedger from './features/finance/ExpenseLedger';
 import ManualExpenseForm from './features/finance/ManualExpenseForm';
-import { inspectReceiptImage, prepareReceiptFiles } from './features/finance/receiptQuality';
-import { processReceiptDocument } from './lib/supabase';
-import { acceptEmployeeInvitation, activateTabletDevice, archiveCostCenter, bootstrapTossPlaceConnection, createCorporateCard, createFeedbackItem, createLeaveRequest, createManagementAccount, createManualStaff, createMeetingNote, createReceiptSubmission, deleteFinanceDocument, deleteStaffCategory, deleteWorkSchedule, disconnectCorporateCard, ensureManagerOrganization, getAuthContext, getCachedOrganizationSalesDashboard, getManagerTabletOrganization, getOrganizationSettings, getTabletDeviceContext, getTossPlaceConnection, grantStaffLeave, importCardTransactions, importFeedbackItems, inviteEmployeeByCode, isAuthSessionError, loadCardTransactions, loadCorporateCards, loadCostCenters, loadFeedbackItems, loadFinanceDocuments, loadManagementAccounts, loadMeetingNotes, loadOperationalAlerts, loadOrganizationSalesDashboard, loadPayrollWorkspace, loadStaffCategories, loadStaffSensitiveProfile, loadTabletDevices, loadWorkforce, manageManagementAccount, markOperationalAlertRead, openFinanceDocument, previewTabletLeaveRequest, recordQrAttendance, reviewLeaveRequest, reviewWorkSchedule, revokeTabletDevice, runMonthEndOperations, saveCostCenter, saveCustomTossPlaceCredentials, saveOrganizationSettings, savePayrollContract, savePayrollDraft, saveStaffCategory, saveStaffOrder, saveStaffSensitiveProfile, saveTossPlaceConnection, saveWorkSchedule, saveWorkSchedulesBulk, sendSettlementEmail, signIn, signOut, signUp, supabase, syncOrganizationSales, tabletAttendance, tabletLeaveRequest, updateCorporateCard, updateFeedbackItem, updateStaffPhone, updateStaffProfile, uploadFinanceDocument, uploadStaffAvatar } from './lib/supabase';
+import { acceptEmployeeInvitation, activateTabletDevice, archiveCostCenter, bootstrapTossPlaceConnection, createCorporateCard, createFeedbackItem, createLeaveRequest, createManagementAccount, createManualStaff, createMeetingNote, deleteFinanceDocument, deleteStaffCategory, deleteWorkSchedule, disconnectCorporateCard, ensureManagerOrganization, getAuthContext, getCachedOrganizationSalesDashboard, getManagerTabletOrganization, getOrganizationSettings, getTabletDeviceContext, getTossPlaceConnection, grantStaffLeave, importCardTransactions, importFeedbackItems, inviteEmployeeByCode, isAuthSessionError, loadCardTransactions, loadCorporateCards, loadCostCenters, loadFeedbackItems, loadFinanceDocuments, loadManagementAccounts, loadMeetingNotes, loadOperationalAlerts, loadOrganizationSalesDashboard, loadPayrollWorkspace, loadStaffCategories, loadStaffSensitiveProfile, loadTabletDevices, loadWorkforce, manageManagementAccount, markOperationalAlertRead, openFinanceDocument, previewTabletLeaveRequest, recordQrAttendance, reviewLeaveRequest, reviewWorkSchedule, revokeTabletDevice, runMonthEndOperations, saveCostCenter, saveCustomTossPlaceCredentials, saveOrganizationSettings, savePayrollContract, savePayrollDraft, saveStaffCategory, saveStaffOrder, saveStaffSensitiveProfile, saveTossPlaceConnection, saveWorkSchedule, saveWorkSchedulesBulk, sendSettlementEmail, signIn, signOut, signUp, supabase, syncOrganizationSales, tabletAttendance, tabletLeaveRequest, updateCorporateCard, updateFeedbackItem, updateStaffPhone, updateStaffProfile, uploadFinanceDocument, uploadReceiptToGoogleDrive, uploadStaffAvatar } from './lib/supabase';
 
 const KOREAN_WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 const currentKoreanDateKey = () => {
@@ -876,46 +872,40 @@ function SalesAnalytics({ organizationId, accountId, initialFrom, canSync = fals
 }
 
 const EXPENSE_SECTIONS = [
-  ['overview', '현황'], ['ledger', '지출 원장'], ['evidence', '증빙 검토'], ['cards', '법인카드'], ['settlement', '결산·문서'],
+  ['overview', '현황'], ['ledger', '지출 원장'], ['cards', '법인카드'], ['settlement', '결산·문서'],
 ];
 
-function ManagerReceiptUpload({ organizationId, onClose, onUploaded, onQueued }) {
-  const [centers, setCenters] = useState([]); const [files, setFiles] = useState([]); const [busy, setBusy] = useState(false); const [message, setMessage] = useState(''); const [uploadedDocument, setUploadedDocument] = useState(null);
-  useEffect(() => { loadCostCenters(organizationId).then(setCenters).catch(error => setMessage(error.message || '부서·섹션을 불러오지 못했습니다.')); }, [organizationId]);
-  const selectFiles = async event => {
-    const selected = Array.from(event.target.files || []).slice(0, 20); if (!selected.length) return;
-    setBusy(true); setMessage('OCR에 맞게 사진을 준비하고 있어요.');
-    try { const next = await prepareReceiptFiles(selected); const issues = (await Promise.all(next.map(inspectReceiptImage))).flat(); setFiles(next); setMessage(issues.length ? issues[0].message : '사진 확인 완료 · 부서와 결제수단을 선택해 주세요.'); }
-    catch (error) { setFiles([]); event.target.value = ''; setMessage(error.message || '영수증 사진을 준비하지 못했습니다.'); }
-    finally { setBusy(false); }
+function ManagerReceiptUpload({ organizationId, onClose }) {
+  const [files, setFiles] = useState([]); const [busy, setBusy] = useState(false); const [message, setMessage] = useState(''); const [uploadedFiles, setUploadedFiles] = useState([]);
+  const selectFiles = event => {
+    const selected = Array.from(event.target.files || []).slice(0, 20);
+    setFiles(selected); setUploadedFiles([]);
+    setMessage(selected.length ? `${selected.length}개 원본 파일을 Google Drive에 저장할 준비가 됐어요.` : '');
   };
   const submit = async event => {
-    event.preventDefault(); if (!files.length) return setMessage('영수증 사진을 선택해 주세요.');
-    const form = new FormData(event.currentTarget); setBusy(true); setMessage('영수증 원본을 저장하고 있어요.');
+    event.preventDefault(); if (!files.length) return setMessage('영수증 파일을 선택해 주세요.');
+    setBusy(true); setMessage('Google Drive에 원본을 저장하고 있어요.');
     try {
-      const document = await createReceiptSubmission({ organizationId, files, costCenterId: form.get('costCenterId'), paymentMethod: form.get('paymentMethod'), submissionReason: String(form.get('reason') || '').trim(), source: 'manager_web' });
-      await processReceiptDocument({ organizationId, documentId: document.id });
-      onQueued?.(document.id);
-      setUploadedDocument(document);
-      setMessage('검토 후 지출 원장과 운영손익에 반영될 예정입니다.');
-    } catch (error) { setMessage(error.message || '영수증을 업로드하지 못했습니다.'); }
+      const uploaded = [];
+      for (const file of files) uploaded.push(await uploadReceiptToGoogleDrive({ organizationId, file }));
+      setUploadedFiles(uploaded); setFiles([]);
+      setMessage('원본 저장이 완료됐습니다. 아래 링크에서 파일을 확인할 수 있어요.');
+    } catch (error) { setMessage(error.message || 'Google Drive에 영수증을 업로드하지 못했습니다.'); }
     finally { setBusy(false); }
   };
-  return <Modal title="영수증 업로드" onClose={busy ? undefined : onClose} variant="manager-receipt-modal">
-    <p className="modal-text">총관리자가 영수증 원본을 직접 등록합니다. 업로드 후 문자와 기본 결제정보 인식, 카드 대조가 자동으로 진행됩니다.</p>
-    {uploadedDocument ? <div className="manager-receipt-success" role="status">
+  return <Modal title="영수증 원본 업로드" onClose={busy ? undefined : onClose} variant="manager-receipt-modal">
+    <p className="modal-text">선택한 원본 파일만 Google Drive에 저장합니다. OCR, 지출 저장, 카드 대조 및 검토함 등록은 현재 실행하지 않습니다.</p>
+    {uploadedFiles.length ? <div className="manager-receipt-success" role="status">
       <span className="manager-receipt-success-icon" aria-hidden="true">✓</span>
-      <div><b>영수증 업로드가 완료됐어요</b><p>{message}</p><small>OCR 결과와 카드 거래를 확인한 뒤 승인하면 증빙 확정 지출에 포함됩니다.</small></div>
-      <button type="button" className="submit" onClick={() => onUploaded(uploadedDocument.id)}>지금 검토하기</button>
-      <button type="button" className="outline" onClick={onClose}>나중에 검토</button>
+      <div><b>Google Drive 저장 완료</b><p>{message}</p><small>Drive 폴더 접근 권한이 있는 계정으로 링크를 열어 주세요.</small></div>
+      {uploadedFiles.map((file, index) => <a key={file.id} className="outline" href={file.webViewLink} target="_blank" rel="noreferrer">{index + 1}. {file.name || '영수증 원본'} 열기</a>)}
+      <button type="button" className="outline" onClick={() => { setUploadedFiles([]); setMessage(''); }}>다른 영수증 업로드</button>
+      <button type="button" className="submit" onClick={onClose}>완료</button>
     </div> : <form className="manager-receipt-form" onSubmit={submit}>
-      <label className="receipt-camera-input"><input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" multiple onChange={selectFiles}/><strong>{files.length ? `${files.length}장 선택됨` : '카메라로 촬영 또는 사진 선택'}</strong><span>최대 20장 · HEIC와 큰 사진은 OCR용 JPG로 자동 최적화</span></label>
+      <label className="receipt-camera-input"><input type="file" accept="image/*,application/pdf" multiple onChange={selectFiles}/><strong>{files.length ? `${files.length}개 파일 선택됨` : '카메라로 촬영 또는 파일 선택'}</strong><span>원본 그대로 Google Drive에 저장 · 파일당 최대 20MB</span></label>
       {files.length > 0 && <div className="manager-receipt-files">{files.map((file, index) => <span key={`${file.name}-${index}`}>{index + 1}. {file.name}</span>)}</div>}
-      <label>부서·섹션<select name="costCenterId" required defaultValue=""><option value="">선택</option>{centers.map(center => <option key={center.id} value={center.id}>{center.name}</option>)}</select></label>
-      <label>결제수단<select name="paymentMethod" required defaultValue="corporate_card"><option value="corporate_card">법인카드</option><option value="personal_card">개인카드</option><option value="cash">현금</option><option value="bank_transfer">계좌이체</option><option value="other">기타</option></select></label>
-      <label>지출 목적 (선택)<input name="reason" maxLength="200" placeholder="예: 주방 식자재 구입"/></label>
       {message && <p className="manager-receipt-message">{message}</p>}
-      <button className="submit" disabled={busy || !files.length}>{busy ? '처리 중…' : '영수증 업로드'}</button>
+      <button className="submit" disabled={busy || !files.length}>{busy ? 'Drive 저장 중…' : 'Google Drive에 저장'}</button>
     </form>}
   </Modal>;
 }
@@ -924,24 +914,19 @@ function ExpenseWorkspace({ organizationId, accountId, employees, navigationCont
   const initialSection = navigationContext?.cardReview ? 'cards' : 'overview';
   const [section, setSection] = useState(initialSection);
   const [showReceiptUpload, setShowReceiptUpload] = useState(false);
-  const [reviewDocumentId, setReviewDocumentId] = useState('');
   const [receiptRevision, setReceiptRevision] = useState(0);
   const [visited, setVisited] = useState(() => new Set([initialSection]));
   const selectSection = next => { setSection(next); setVisited(current => new Set([...current, next])); };
   useEffect(() => { if (navigationContext?.cardReview) selectSection('cards'); }, [navigationContext?.cardReview, navigationContext?.month]);
   const fromException = item => {
-    const next = item.target === 'receipts' ? 'evidence' : item.target === 'closeouts' ? 'overview' : 'cards';
+    if (item.target === 'receipts') { setShowReceiptUpload(true); return; }
+    const next = item.target === 'closeouts' ? 'overview' : 'cards';
     selectSection(next);
-    requestAnimationFrame(() => document.querySelector(item.target === 'closeouts' ? '.finance-report-dashboard' : next === 'evidence' ? '.expense-review-queue' : '.corporate-card-workspace')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    requestAnimationFrame(() => document.querySelector(item.target === 'closeouts' ? '.finance-report-dashboard' : '.corporate-card-workspace')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   };
   return <div className="expense-workspace">
     <div className="page-title expense-workspace-title"><div><p>확인할 일부터 결산까지</p><h1>지출 · 증빙</h1><span>업무별 탭에서 지출 원천과 증빙을 확인하세요.</span></div><button type="button" className="cta" onClick={() => setShowReceiptUpload(true)}>＋ 영수증 업로드</button></div>
-    {showReceiptUpload && <ManagerReceiptUpload
-      organizationId={organizationId}
-      onClose={() => setShowReceiptUpload(false)}
-      onQueued={() => setReceiptRevision(value => value + 1)}
-      onUploaded={documentId => { setShowReceiptUpload(false); setReviewDocumentId(documentId); selectSection('evidence'); }}
-    />}
+    {showReceiptUpload && <ManagerReceiptUpload organizationId={organizationId} onClose={() => setShowReceiptUpload(false)}/>}
     <div className="expense-workspace-tabs" role="tablist" aria-label="지출·증빙 업무">
       {EXPENSE_SECTIONS.map(([id, label], index) => <button type="button" role="tab" key={id} id={`expense-tab-${id}`} aria-selected={section === id} aria-controls={`expense-panel-${id}`} tabIndex={section === id ? 0 : -1} onClick={() => selectSection(id)} onKeyDown={event => { if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return; event.preventDefault(); const offset = event.key === 'ArrowRight' ? 1 : -1; const next = EXPENSE_SECTIONS[(index + offset + EXPENSE_SECTIONS.length) % EXPENSE_SECTIONS.length][0]; selectSection(next); document.getElementById(`expense-tab-${next}`)?.focus(); }}>{label}</button>)}
     </div>
@@ -949,8 +934,7 @@ function ExpenseWorkspace({ organizationId, accountId, employees, navigationCont
       {visited.has(id) && <>
       {id === 'overview' && <><FinanceReportDashboard organizationId={organizationId} onOpenLedger={() => selectSection('ledger')}/><ExpenseExceptionInbox organizationId={organizationId} onNavigate={fromException} refreshToken={receiptRevision}/></>}
       {id === 'ledger' && <><ExpenseLedger organizationId={organizationId}/><ManualExpenseForm organizationId={organizationId} employees={employees}/></>}
-      {id === 'evidence' && <><ExpenseReviewQueue organizationId={organizationId} accountId={accountId} canReview={canReview} focusDocumentId={reviewDocumentId} refreshToken={receiptRevision}/><ExpenseReminderSettings organizationId={organizationId}/></>}
-      {id === 'cards' && <>{navigationContext?.cardReview && <CardReviewList accountId={accountId} organizationId={organizationId} month={navigationContext.month} onBack={() => onNavigate('dashboard')} onOpenReviewQueue={() => selectSection('evidence')}/>}<CorporateCards organizationId={organizationId} employees={employees}/></>}
+      {id === 'cards' && <>{navigationContext?.cardReview && <CardReviewList accountId={accountId} organizationId={organizationId} month={navigationContext.month} onBack={() => onNavigate('dashboard')} onOpenReviewQueue={() => setShowReceiptUpload(true)}/>}<CorporateCards organizationId={organizationId} employees={employees}/></>}
       {id === 'settlement' && <FinanceDocuments organizationId={organizationId}/>}
       </>}
     </div>)}
@@ -979,7 +963,7 @@ function FinanceDocuments({ organizationId, employees = [] }) {
   useEffect(() => { if (organizationId) refresh(); }, [organizationId]);
   useEffect(() => { const input = document.querySelector('.manager input[name="file"]'); if (!input) return; input.setAttribute('accept', 'image/jpeg,image/png,image/webp,image/heic,image/heif,.pdf,.csv,.xls,.xlsx'); input.setAttribute('capture', 'environment'); }, []);
   useEffect(() => { if (!organizationId || !settlementMonth) return; const { start, end } = monthRange(settlementMonth); setSalesError(''); loadOrganizationSalesDashboard(organizationId, { from: start, to: end }).then(setSales).catch(error => { setSales(null); setSalesError(error.message || '매출 데이터를 불러오지 못했습니다.'); }); }, [organizationId, settlementMonth]);
-  const upload = async event => { event.preventDefault(); const form = new FormData(event.currentTarget); const file = form.get('file'); setBusy(true); try { const document = await uploadFinanceDocument({ organizationId, documentType: file?.type?.startsWith('image/') ? 'receipt' : form.get('documentType'), title: form.get('title'), file, documentDate: form.get('documentDate'), memo: form.get('memo') }); if (file?.type?.startsWith('image/')) { const result = await processReceiptDocument({ organizationId, documentId: document.id }); setMessage(result.duplicateReceipt ? `이미 처리된 영수증과 같아 기존 지출에 증빙만 추가했어요. ${result.extracted?.merchantName || ''} · ${formatMoney(result.extracted?.totalAmount || 0)}` : `영수증을 분석했어요. ${result.extracted?.merchantName || '사용처 확인 필요'} · ${formatMoney(result.extracted?.totalAmount || 0)}${result.candidates?.length ? ` · 카드 후보 ${result.candidates.length}건` : ' · 카드 후보 없음'}`); } else setMessage('정산 문서를 업로드했어요.'); event.currentTarget.reset(); refresh(); } catch (error) { setMessage(error.message || '문서를 업로드하지 못했습니다. 원본은 보관됐으니 다시 분석할 수 있습니다.'); refresh(); } finally { setBusy(false); } };
+  const upload = async event => { event.preventDefault(); const form = new FormData(event.currentTarget); const file = form.get('file'); setBusy(true); try { await uploadFinanceDocument({ organizationId, documentType: form.get('documentType'), title: form.get('title'), file, documentDate: form.get('documentDate'), memo: form.get('memo') }); setMessage('정산 문서를 업로드했어요.'); event.currentTarget.reset(); refresh(); } catch (error) { setMessage(error.message || '정산 문서를 업로드하지 못했습니다.'); refresh(); } finally { setBusy(false); } };
   const open = async document => { try { window.open(await openFinanceDocument(document.storage_path), '_blank', 'noopener,noreferrer'); } catch (error) { setMessage(error.message || '파일을 열지 못했습니다.'); } };
   const remove = async document => { if (!window.confirm(`“${document.title}” 문서를 삭제할까요?`)) return; setBusy(true); try { await deleteFinanceDocument(document); setDocuments(items => items.filter(item => item.id !== document.id)); setMessage('문서를 삭제했어요.'); } catch (error) { setMessage(error.message || '문서를 삭제하지 못했습니다.'); } finally { setBusy(false); } };
   const label = type => type === 'tax_invoice' ? '세금계산서' : type === 'sales_slip' ? '매출전표' : '기타 정산자료';
