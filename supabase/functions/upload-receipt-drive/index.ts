@@ -118,17 +118,7 @@ Deno.serve(async request => {
     })
     const result = await upload.json()
     if (!upload.ok || !result.id) throw new Error(`google_drive_upload_failed:${result.error?.message || upload.status}`)
-    const { data: history, error: historyError } = await admin.from('timefit_user_drive_receipt_uploads').insert({
-      organization_id: organizationId,
-      uploaded_by: authData.user.id,
-      drive_file_id: result.id,
-      file_name: result.name || metadata.name,
-      mime_type: result.mimeType || file.type || null,
-      file_size: Number(result.size || file.size || 0),
-      drive_url: result.webViewLink,
-    }).select('id,drive_file_id,file_name,mime_type,file_size,drive_url,created_at').single()
-    if (historyError) throw new Error(`receipt_upload_history_failed:${historyError.message}`)
-    return json({ file: result, history })
+    return json({ file: result })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     return json({ error: message }, /missing|invalid_receipt|unsupported|too_large/.test(message) ? 400 : 500)

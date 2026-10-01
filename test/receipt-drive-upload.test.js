@@ -24,3 +24,13 @@ test('관리자와 직원 영수증 UI는 OCR·검토 저장을 호출하지 않
   assert.doesNotMatch(employee, /createReceiptSubmission|processReceiptDocument|confirmReceiptSubmission|loadMyReceiptDocuments/);
   assert.doesNotMatch(main, /\['evidence', '증빙 검토'\]/);
 });
+
+test('Drive 업로드 링크는 페이지 이동과 새로고침 후에도 복원된다', async () => {
+  const [client, main, employee] = await Promise.all([read('src/lib/supabase.js'), read('src/main.jsx'), read('src/features/finance/EmployeeReceiptSubmission.jsx')]);
+  assert.match(client, /timefit:drive-receipts:/);
+  assert.match(client, /localStorage\.setItem/);
+  assert.match(client, /export async function loadDriveReceiptUploads/);
+  assert.match(main, /loadDriveReceiptUploads\(organizationId\)/);
+  assert.match(employee, /loadDriveReceiptUploads\(organizationId\)/);
+  assert.match(employee, /const form = event\.currentTarget/);
+});
