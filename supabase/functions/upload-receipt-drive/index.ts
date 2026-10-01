@@ -86,14 +86,21 @@ Deno.serve(async request => {
     const { data: membership } = await admin.from('timefit_user_memberships').select('organization_id').eq('organization_id', organizationId).eq('user_id', authData.user.id).maybeSingle()
     if (!membership) return json({ error: 'organization_access_denied' }, 403)
 
-    const folderId = Deno.env.get('GOOGLE_DRIVE_FOLDER_ID') || ''
+    const { data: organization } = await admin.from('timefit_user_organizations').select('name').eq('id', organizationId).maybeSingle()
+    const organizationName = String(organization?.name || '').trim()
+    const isButterVilla = /버터\s*빌라|butter\s*villa/i.test(organizationName)
+    const folderId = (isButterVilla ? Deno.env.get('GOOGLE_DRIVE_BUTTER_VILLA_FOLDER_ID') : '') || Deno.env.get('GOOGLE_DRIVE_FOLDER_ID') || ''
     if (!folderId) throw new Error('google_drive_folder_missing')
     const accessToken = await googleAccessToken()
     const date = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
     const metadata = {
-      name: `${organizationId}_${date}_${crypto.randomUUID().slice(0, 8)}_${safeFileName(file.name)}`,
+      name: `${isButterVilla ? '버터빌라' : safeFileName(organizationName || organizationId)}_${date}_${crypto.randomUUID().slice(0, 8)}_${safeFileName(file.name)}`,
       parents: [folderId],
-      description: `Timefit receipt upload · organization ${organizationId} · user ${authData.user.id}`,
+      description: `Timefit receipt upload · ${organizationName || organizationId} · organization ${organizationId} · user ${authData.user.id}`,
+      appProperties: {
+        timefitOrganizationId: organizationId,
+        timefitBusiness: isButterVilla ? 'butter_villa' : 'organization',
+      },
     }
     const boundary = `timefit_${crypto.randomUUID()}`
     const prefix = new TextEncoder().encode(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: ${file.type}\r\n\r\n`)
