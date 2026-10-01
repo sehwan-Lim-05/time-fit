@@ -504,6 +504,17 @@ export async function createReceiptSubmission({ organizationId, files, costCente
     throw error;
   }
 }
+export async function uploadReceiptToGoogleDrive({ organizationId, file }) {
+  if (!organizationId || !file?.size) throw new Error('영수증 파일을 선택해 주세요.');
+  const body = new FormData(); body.set('organizationId', organizationId); body.set('file', file, file.name);
+  const { data, error } = await requireClient().functions.invoke('upload-receipt-drive', { body });
+  if (error) {
+    const detail = await error.context?.json?.().catch(() => null);
+    throw new Error(detail?.error || error.message || 'Google Drive 업로드에 실패했습니다.');
+  }
+  if (!data?.file?.webViewLink) throw new Error('Google Drive 파일 URL을 받지 못했습니다.');
+  return data.file;
+}
 export async function loadMyReceiptDocuments(organizationId) {
   const client = requireClient(); const userId = (await client.auth.getUser()).data.user?.id;
   const { data, error } = await client.from('timefit_user_finance_documents').select('id,title,file_name,processing_status,review_status,processing_error,extracted_data,cost_center_id,payment_method,change_request_reason,page_count,created_at').eq('organization_id', organizationId).eq('document_type', 'receipt').eq('uploaded_by', userId).order('created_at', { ascending: false }).limit(40);
