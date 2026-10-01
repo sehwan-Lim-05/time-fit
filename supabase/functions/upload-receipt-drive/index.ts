@@ -92,6 +92,7 @@ Deno.serve(async request => {
     const folderId = (isButterVilla ? Deno.env.get('GOOGLE_DRIVE_BUTTER_VILLA_FOLDER_ID') : '') || Deno.env.get('GOOGLE_DRIVE_FOLDER_ID') || ''
     if (!folderId) throw new Error('google_drive_folder_missing')
     const accessToken = await googleAccessToken()
+    const quotaProject = Deno.env.get('GOOGLE_DRIVE_QUOTA_PROJECT_ID') || Deno.env.get('GOOGLE_CLOUD_PROJECT_ID') || ''
     const date = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
     const metadata = {
       name: `${isButterVilla ? '버터빌라' : safeFileName(organizationName || organizationId)}_${date}_${crypto.randomUUID().slice(0, 8)}_${safeFileName(file.name)}`,
@@ -108,7 +109,11 @@ Deno.serve(async request => {
     const body = new Blob([prefix, await file.arrayBuffer(), suffix])
     const upload = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,mimeType,size,createdTime,webViewLink,webContentLink', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': `multipart/related; boundary=${boundary}`,
+        ...(quotaProject ? { 'X-Goog-User-Project': quotaProject } : {}),
+      },
       body,
     })
     const result = await upload.json()
