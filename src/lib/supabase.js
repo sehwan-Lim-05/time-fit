@@ -513,7 +513,19 @@ export async function uploadReceiptToGoogleDrive({ organizationId, file }) {
     throw new Error(detail?.error || error.message || 'Google Drive 업로드에 실패했습니다.');
   }
   if (!data?.file?.webViewLink) throw new Error('Google Drive 파일 URL을 받지 못했습니다.');
-  return data.file;
+  const uploaded = { ...data.file, createdAt: data.file.createdTime || new Date().toISOString() };
+  if (typeof window !== 'undefined') {
+    const key = `timefit:drive-receipts:${organizationId}`;
+    let current = [];
+    try { current = JSON.parse(window.localStorage.getItem(key) || '[]'); } catch { current = []; }
+    window.localStorage.setItem(key, JSON.stringify([uploaded, ...current.filter(item => item.id !== uploaded.id)].slice(0, 50)));
+  }
+  return uploaded;
+}
+export async function loadDriveReceiptUploads(organizationId) {
+  if (!organizationId || typeof window === 'undefined') return [];
+  try { return JSON.parse(window.localStorage.getItem(`timefit:drive-receipts:${organizationId}`) || '[]'); }
+  catch { return []; }
 }
 export async function loadMyReceiptDocuments(organizationId) {
   const client = requireClient(); const userId = (await client.auth.getUser()).data.user?.id;
