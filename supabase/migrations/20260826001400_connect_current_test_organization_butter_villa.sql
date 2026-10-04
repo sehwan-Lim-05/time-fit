@@ -26,7 +26,16 @@ begin
   limit 1;
 
   if v_merchant_id is null then
-    raise exception 'butter_villa_merchant_not_found';
+    raise notice 'Skipping current test organization Butter Villa connection: source merchant not found';
+    return;
+  end if;
+
+  if not exists (
+    select 1 from public.timefit_user_organizations
+    where id = '84c4d4eb-21e5-45e1-a183-0e461f1b532f'
+  ) then
+    raise notice 'Skipping current test organization Butter Villa connection: organization not found';
+    return;
   end if;
 
   insert into public.timefit_user_tossplace_connections (

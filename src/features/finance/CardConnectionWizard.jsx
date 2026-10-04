@@ -34,7 +34,7 @@ export default function CardConnectionWizard() {
   const [result, setResult] = useState(null);
   const [history, setHistory] = useState([]);
   const [reauthForm, setReauthForm] = useState({ cardCompanyCode: '', businessNumber: '', loginMethod: 'id_password', loginId: '', password: '' });
-  const provider = import.meta.env.VITE_CARD_CONNECTION_PROVIDER || 'mock';
+  const provider = process.env.NEXT_PUBLIC_CARD_CONNECTION_PROVIDER || 'mock';
 
   useEffect(() => {
     let active = true;

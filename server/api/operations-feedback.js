@@ -1,5 +1,5 @@
 import { authorizeFinance, financeRest, financeServerConfigured } from './_finance-server.js';
-import { addDays, kstDate, lastCompleteWeek, validDate, weeklySalesFromDaily } from '../shared/operations.js';
+import { addDays, kstDate, recentCompletedWeek, validDate, weeklySales } from '../../shared/operations.js';
 
 // Never silently truncate a busy store at PostgREST's row limit.
 export async function readAll(path, read = financeRest) {
@@ -14,10 +14,17 @@ export async function readAll(path, read = financeRest) {
 }
 
 export async function loadWeeklyFeedback(organizationId, range) {
-  const snapshot = await financeRest('rpc/timefit_user_read_weekly_sales', {
-    method: 'POST', body: JSON.stringify({ p_organization_id: organizationId, p_from: range.previousFrom, p_to: range.to }),
-  });
-  return weeklySalesFromDaily(snapshot, range);
+  const org = `organization_id=eq.${encodeURIComponent(organizationId)}`;
+  const connections = await financeRest(`timefit_user_tossplace_connections?${org}&select=merchant_id,last_synced_at,last_error&limit=1`);
+  const connection = connections[0];
+  if (!connection?.merchant_id) return weeklySales([], [], range, null);
+  const merchant = `merchant_id=eq.${encodeURIComponent(connection.merchant_id)}`;
+  const [orders, daily, syncRuns] = await Promise.all([
+    readAll(`tossplace_orders?${org}&${merchant}&ordered_at=gte.${encodeURIComponent(`${range.previousFrom}T00:00:00+09:00`)}&ordered_at=lt.${encodeURIComponent(`${addDays(range.to, 1)}T00:00:00+09:00`)}&select=order_id,ordered_at,state,total_amount,raw_order&order=order_id.asc`),
+    financeRest(`timefit_user_tossplace_daily_sales?${org}&${merchant}&sales_date=gte.${range.previousFrom}&sales_date=lte.${range.to}&select=sales_date,order_count,completed_order_count,completed_amount,cancelled_count,finalization_status,revision_number,last_source_synced_at`),
+    financeRest(`timefit_user_sales_sync_runs?${org}&${merchant}&status=eq.succeeded&select=id,window_from,window_to,page_complete,status,completed_at,orders_received,pages_fetched&order=completed_at.desc&limit=50`),
+  ]);
+  return weeklySales(orders, daily, range, connection, syncRuns);
 }
 
 export default async function handler(req, res) {
@@ -27,13 +34,13 @@ export default async function handler(req, res) {
   const { organizationId, scope = 'weekly', from } = req.query || {};
   if (typeof organizationId !== 'string' || !/^[0-9a-f-]{36}$/i.test(organizationId) || !['weekly', 'tasks', 'cards'].includes(scope)) return res.status(400).json({ ok: false, error: '조회 조건을 확인해 주세요.' });
   try {
-    const auth = await authorizeFinance(req, organizationId, { ownerOnly: true });
-    if (!auth) return res.status(req.headers.authorization ? 403 : 401).json({ ok: false, error: '최고관리자 권한이 필요합니다.' });
+    const auth = await authorizeFinance(req, organizationId, scope === 'weekly' ? { permissionsAny: ['sales.view'] } : { ownerOnly: true });
+    if (!auth) return res.status(req.headers.authorization ? 403 : 401).json({ ok: false, error: scope === 'weekly' ? '매출 조회 권한이 필요합니다.' : '최고관리자 권한이 필요합니다.' });
     const today = kstDate();
     const org = `organization_id=eq.${encodeURIComponent(organizationId)}`;
     if (scope === 'weekly') {
-      if (from !== undefined && (!validDate(from) || new Date(`${from}T00:00:00Z`).getUTCDay() !== 1 || addDays(from, 6) >= today)) return res.status(400).json({ ok: false, error: '마감된 주의 월요일을 선택해 주세요.' });
-      const range = from ? { from, to: addDays(from, 6), previousFrom: addDays(from, -7), previousTo: addDays(from, -1) } : lastCompleteWeek(today);
+      if (from !== undefined && (!validDate(from) || addDays(from, 6) >= today)) return res.status(400).json({ ok: false, error: '어제까지 완료된 7일 기간을 선택해 주세요.' });
+      const range = from ? { from, to: addDays(from, 6), previousFrom: addDays(from, -7), previousTo: addDays(from, -1) } : recentCompletedWeek(today);
       return res.status(200).json({ ok: true, data: await loadWeeklyFeedback(organizationId, range) });
     }
     const month = req.query.month || today.slice(0, 7);

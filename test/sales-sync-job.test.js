@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { advanceSalesJob } from '../api/_sales-sync-job.js';
-import handler from '../api/sync-sales.js';
+import { advanceSalesJob } from '../server/api/_sales-sync-job.js';
+import handler from '../server/api/sync-sales.js';
 const job = { id: 'job', run_token: 'token', window_from: null, window_to: '2026-09-17T00:00:00Z', next_page: 1, status: 'collecting' };
 const providerOrder = id => ({ id, createdAt: '2026-09-01T00:00:00Z', chargePrice: { totalAmount: 100 } });
 function fixture(overrides = {}) {
@@ -67,12 +67,12 @@ test('failure of one cron store does not prevent the next store publishing', asy
   const queried = [];
   t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
     if (url.includes('connections?')) return new Response(JSON.stringify([{ organization_id: 'first', merchant_id: 1 }, { organization_id: 'second', merchant_id: 2 }]));
-    if (url.includes('claim_sales_job')) return new Response(JSON.stringify({ ...job, id: JSON.parse(options.body).p_organization_id }));
+    if (url.includes('sales_sync_runs') && options.method === 'POST') return new Response(JSON.stringify([{ id: `run-${JSON.parse(options.body)[0].organization_id}` }]));
     if (url.includes('open-api.tossplace.com')) {
       queried.push(url);
       return url.includes('/merchants/1/') ? new Response('{}', { status: 503 }) : new Response(JSON.stringify({ resultType: 'SUCCESS', success: [] }));
     }
-    return new Response(url.includes('finish_sales_job') ? '0' : 'null');
+    return new Response('null');
   });
   const res = { setHeader() {}, status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; } };
   await handler({ method: 'GET', headers: { authorization: 'Bearer test' }, query: {} }, res);

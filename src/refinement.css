@@ -15,6 +15,10 @@
 .payroll-snapshot-notice.stale b { color: #d97706; }
 .payroll-row-amount { display: grid; justify-items: end; gap: 3px; }
 .payroll-row-amount small { color: #2f80ed; font-size: 12px; white-space: nowrap; }
+.salary-row .payroll-pdf-button { flex: none; white-space: nowrap; padding: 8px 11px; }
+@media (max-width: 650px) {
+  .salary-row .payroll-pdf-button { font-size: 11px; padding: 7px 9px; }
+}
 
 /* Break-time handling is temporarily outside the MVP schedule scope. The API
    also persists zero minutes, so this is presentation rather than enforcement. */

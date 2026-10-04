@@ -29,7 +29,8 @@ begin
   limit 1;
 
   if v_merchant_id is null then
-    raise exception 'butter_villa_merchant_not_found';
+    raise notice 'Skipping test@gmail.com Butter Villa connection: source merchant not found';
+    return;
   end if;
 
   insert into public.timefit_user_tossplace_connections (
@@ -71,7 +72,7 @@ begin
 
   get diagnostics v_target_count = row_count;
   if v_target_count = 0 then
-    raise exception 'test_gmail_manager_organization_not_found';
+    raise notice 'Skipping test@gmail.com Butter Villa connection: manager organization not found';
   end if;
 end $$;
 

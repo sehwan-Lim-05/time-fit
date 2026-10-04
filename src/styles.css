@@ -63,6 +63,7 @@
    department glyph as the privacy-safe fallback. */
 .avatar{overflow:hidden;box-shadow:inset 0 0 0 1px #ffffff99;font-size:14px}
 .avatar.category-avatar{width:auto;min-width:33px;max-width:78px;padding:0 8px;border-radius:10px}
+.avatar.category-avatar{background:color-mix(in srgb,var(--category-color) 12%,white);color:color-mix(in srgb,var(--category-color) 82%,#191f28)}
 .avatar i{font-style:normal;line-height:1;transform:translateY(-.5px);font-size:10px;letter-spacing:-.4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:62px}
 .avatar img{display:block;width:100%;height:100%;object-fit:cover}
 .avatar.has-image{box-shadow:0 0 0 2px #fff,0 0 0 3px #dbeafe}

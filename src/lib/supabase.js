@@ -1,7 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
+import { normalizePayrollDraftLine } from '../payrollDraftLine.js';
 
-const url = import.meta.env.VITE_SUPABASE_URL;
-const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 export const supabase = url && anonKey ? createClient(url, anonKey) : null;
 let refreshSessionInFlight = null;
@@ -142,7 +143,7 @@ export async function loadWorkforce(organizationId) {
   const staffColumns = `id,user_id,display_name,department,category_id,job_title,joined_on,phone_e164,avatar_path,sort_order${canViewPayroll ? ',pay_type,hourly_wage,daily_wage,monthly_salary,annual_salary' : ''}`;
   const [staffResult, scheduleResult, leaveResult, attendanceResult, settingsResult, grantsResult, categoriesResult] = await requestWithTimeout(Promise.all([
     allWorkforceRows(() => client.from('timefit_user_staff').select(staffColumns).eq('organization_id', organizationId).order('sort_order').order('created_at').order('id')),
-    allWorkforceRows(() => client.from('timefit_user_work_schedules').select('id,staff_id,work_date,starts_at,ends_at,break_minutes,break_starts_at,break_ends_at,shift_name,is_day_off,status,approval_status,submitted_by,submitted_at,reviewed_by,reviewed_at,review_comment').eq('organization_id', organizationId).order('work_date').order('id')),
+    allWorkforceRows(() => client.from('timefit_user_work_schedules').select('id,staff_id,work_date,starts_at,ends_at,break_minutes,break_paid,break_starts_at,break_ends_at,shift_name,is_day_off,status,approval_status,submitted_by,submitted_at,reviewed_by,reviewed_at,review_comment,updated_at').eq('organization_id', organizationId).order('work_date').order('id')),
     allWorkforceRows(() => client.from('timefit_user_leave_requests').select('id,staff_id,starts_on,ends_on,leave_type,amount,reason,status,review_comment,created_at').eq('organization_id', organizationId).order('created_at', { ascending: false }).order('id')),
     allWorkforceRows(() => client.from('timefit_user_attendance_records').select('id,staff_id,work_date,checked_in_at,checked_out_at,source,updated_at').eq('organization_id', organizationId).order('work_date', { ascending: false }).order('id')),
     client.from('timefit_user_organization_settings').select('*').eq('organization_id', organizationId).maybeSingle(),
@@ -243,7 +244,7 @@ export async function manageManagementAccount(payload) {
 
 export async function loadManagementAccounts(organizationId) {
   const client = requireClient();
-  const { data, error } = await client.from('timefit_user_management_accounts').select('id,user_id,staff_id,login_id,role_code,status,force_password_change,created_at,timefit_user_management_permissions(permission_code,allowed),timefit_user_management_scopes(category_id)').eq('organization_id', organizationId).order('created_at', { ascending: false });
+  const { data, error } = await client.from('timefit_user_management_accounts').select('id,user_id,staff_id,login_id,role_code,status,force_password_change,created_at,timefit_user_management_permissions(permission_code,allowed),timefit_user_management_scopes(category_id),timefit_user_management_cost_center_scopes(cost_center_id)').eq('organization_id', organizationId).order('created_at', { ascending: false });
   if (error) throw error; return data || [];
 }
 
@@ -338,10 +339,10 @@ export async function loadOrganizationSalesDashboard(organizationId, filters = {
   rememberSalesDashboard(cacheKey, { data: body, cachedAt: Date.now() });
   return body;
 }
-export async function syncOrganizationSales(organizationId) {
+export async function syncOrganizationSales(organizationId, options = {}) {
   const client = requireClient(); const { data: { session } } = await client.auth.getSession();
   if (!session?.access_token) throw new Error('로그인이 필요합니다.');
-  const response = await fetch('/api/sync-sales', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ organizationId }) });
+  const response = await fetch('/api/sync-sales', { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ organizationId, ...options }) });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body.error || '매출 동기화를 완료하지 못했습니다.');
   return body;
@@ -372,12 +373,13 @@ export async function savePayrollContract(contract) {
   if (error) throw error; return data;
 }
 export async function savePayrollDraft({ organizationId, settlementMonth, status = 'draft', lines }) {
+  const normalizedLines = lines.map(normalizePayrollDraftLine);
   const client = requireClient(); const userId = (await client.auth.getUser()).data.user?.id; const month = `${settlementMonth}-01`;
   const { data: draft, error: draftError } = await client.from('timefit_user_payroll_drafts').upsert({ organization_id: organizationId, settlement_month: month, status, updated_by: userId, created_by: userId, updated_at: new Date().toISOString() }, { onConflict: 'organization_id,settlement_month' }).select().single();
   if (draftError) throw draftError;
   const { error: deleteError } = await client.from('timefit_user_payroll_draft_lines').delete().eq('payroll_draft_id', draft.id);
   if (deleteError) throw deleteError;
-  if (lines.length) { const { error: linesError } = await client.from('timefit_user_payroll_draft_lines').insert(lines.map(line => ({ ...line, payroll_draft_id: draft.id }))); if (linesError) throw linesError; }
+  if (normalizedLines.length) { const { error: linesError } = await client.from('timefit_user_payroll_draft_lines').insert(normalizedLines.map(line => ({ ...line, payroll_draft_id: draft.id }))); if (linesError) throw linesError; }
   return draft;
 }
 export async function loadFeedbackItems(organizationId) {
@@ -430,9 +432,104 @@ export async function uploadFinanceDocument({ organizationId, documentType, titl
   if (error) { await client.storage.from('timefit-finance-documents').remove([path]); throw error; }
   return data;
 }
+const sha256File = async file => {
+  if (!globalThis.crypto?.subtle) return null;
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+  return [...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, '0')).join('');
+};
+
+export async function loadCostCenters(organizationId) {
+  const { data, error } = await requireClient().from('timefit_user_cost_centers').select('id,parent_id,center_type,name,code,staff_category_id,status,sort_order').eq('organization_id', organizationId).eq('status', 'active').order('sort_order').order('name');
+  if (error) throw error; return data || [];
+}
+export async function saveCostCenter({ id, organizationId, parentId, centerType, name, code, sortOrder = 0 }) {
+  const client = requireClient();
+  const payload = { organization_id: organizationId, parent_id: centerType === 'section' ? parentId : null, center_type: centerType, name: String(name || '').trim(), code: String(code || '').trim() || null, sort_order: Number(sortOrder || 0), status: 'active', updated_at: new Date().toISOString() };
+  if (!payload.name || !['department','section'].includes(centerType) || (centerType === 'section' && !parentId)) throw new Error('부서·섹션 정보를 확인해 주세요.');
+  const query = id ? client.from('timefit_user_cost_centers').update(payload).eq('id', id) : client.from('timefit_user_cost_centers').insert(payload);
+  const { data, error } = await query.select().single(); if (error) throw error; return data;
+}
+export async function archiveCostCenter(id) {
+  const { data, error } = await requireClient().from('timefit_user_cost_centers').update({ status: 'archived', updated_at: new Date().toISOString() }).eq('id', id).select().single();
+  if (error) throw error; return data;
+}
+
+export async function createReceiptSubmission({ organizationId, files, costCenterId, paymentMethod, staffId, submissionReason, source = 'employee_web' }) {
+  const client = requireClient(); const userId = (await client.auth.getUser()).data.user?.id;
+  const selected = Array.from(files || []).filter(Boolean);
+  if (!selected.length) throw new Error('촬영한 영수증을 선택해 주세요.');
+  if (selected.length > 20) throw new Error('영수증은 한 번에 20장까지 올릴 수 있어요.');
+  if (selected.some(file => !['image/jpeg','image/png','image/webp'].includes(String(file.type || '').toLowerCase()))) throw new Error('OCR 처리 전 JPG, PNG 또는 WebP 이미지가 필요합니다.');
+  if (selected.some(file => file.size > 7 * 1024 * 1024) || selected.reduce((sum, file) => sum + file.size, 0) > 60 * 1024 * 1024) throw new Error('OCR용 이미지 한 장은 7MB, 전체는 60MB 이하만 올릴 수 있어요.');
+  if (!costCenterId) throw new Error('영수증을 사용할 부서·섹션을 선택해 주세요.');
+  const hashes = await Promise.all(selected.map(sha256File));
+  let contentSha256 = hashes.length === 1 ? hashes[0] : null;
+  if (hashes.every(Boolean) && globalThis.crypto?.subtle) {
+    const combined = new TextEncoder().encode(hashes.join('|'));
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', combined);
+    contentSha256 = [...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, '0')).join('');
+  }
+  if (contentSha256) {
+    const { data: duplicate, error: duplicateError } = await client.from('timefit_user_finance_documents').select('id,title,created_at').eq('organization_id', organizationId).eq('content_sha256', contentSha256).maybeSingle();
+    if (duplicateError) throw duplicateError;
+    if (duplicate) { const error = new Error('이미 등록된 영수증입니다. 기존 제출 내역을 확인해 주세요.'); error.code = 'duplicate_receipt'; error.documentId = duplicate.id; throw error; }
+  }
+  const sessionId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const paths = selected.map((file, index) => `${organizationId}/${userId || 'employee'}/${sessionId}/${String(index + 1).padStart(2, '0')}-${file.name.replace(/[^a-zA-Z0-9가-힣._-]/g, '_')}`);
+  const uploaded = [];
+  try {
+    for (let index = 0; index < selected.length; index += 1) {
+      const { error } = await client.storage.from('timefit-finance-documents').upload(paths[index], selected[index], { contentType: selected[index].type || 'application/octet-stream', upsert: false });
+      if (error) throw error; uploaded.push(paths[index]);
+    }
+    const now = new Date();
+    const { data: document, error: documentError } = await client.from('timefit_user_finance_documents').insert({
+      organization_id: organizationId, document_type: 'receipt', title: `${now.toLocaleDateString('ko-KR')} 영수증`,
+      file_name: selected[0].name, storage_path: paths[0], mime_type: selected[0].type || null,
+      file_size: selected.reduce((sum, file) => sum + file.size, 0), content_sha256: contentSha256,
+      uploaded_by: userId, submitted_by_staff_id: staffId || null, submission_reason: submissionReason || null,
+      cost_center_id: costCenterId, payment_method: paymentMethod || null, review_status: 'submitted',
+      processing_status: 'uploaded', submitted_at: now.toISOString(), page_count: selected.length,
+      capture_metadata: { uploadSessionId: sessionId, source },
+    }).select().single();
+    if (documentError) throw documentError;
+    const { error: pagesError } = await client.from('timefit_user_finance_document_pages').insert(selected.map((file, index) => ({
+      organization_id: organizationId, document_id: document.id, page_number: index + 1, storage_path: paths[index],
+      mime_type: file.type || null, file_size: file.size, content_sha256: hashes[index],
+    })));
+    if (pagesError) { await client.from('timefit_user_finance_documents').delete().eq('id', document.id); throw pagesError; }
+    return document;
+  } catch (error) {
+    if (uploaded.length) await client.storage.from('timefit-finance-documents').remove(uploaded).catch(() => {});
+    throw error;
+  }
+}
+export async function uploadReceiptToGoogleDrive({ organizationId, file }) {
+  if (!organizationId || !file?.size) throw new Error('영수증 파일을 선택해 주세요.');
+  const body = new FormData(); body.set('organizationId', organizationId); body.set('file', file, file.name);
+  const { data, error } = await requireClient().functions.invoke('upload-receipt-drive', { body });
+  if (error) {
+    const detail = await error.context?.json?.().catch(() => null);
+    throw new Error(detail?.error || error.message || 'Google Drive 업로드에 실패했습니다.');
+  }
+  if (!data?.file?.webViewLink) throw new Error('Google Drive 파일 URL을 받지 못했습니다.');
+  const uploaded = { ...data.file, createdAt: data.file.createdTime || new Date().toISOString() };
+  if (typeof window !== 'undefined') {
+    const key = `timefit:drive-receipts:${organizationId}`;
+    let current = [];
+    try { current = JSON.parse(window.localStorage.getItem(key) || '[]'); } catch { current = []; }
+    window.localStorage.setItem(key, JSON.stringify([uploaded, ...current.filter(item => item.id !== uploaded.id)].slice(0, 50)));
+  }
+  return uploaded;
+}
+export async function loadDriveReceiptUploads(organizationId) {
+  if (!organizationId || typeof window === 'undefined') return [];
+  try { return JSON.parse(window.localStorage.getItem(`timefit:drive-receipts:${organizationId}`) || '[]'); }
+  catch { return []; }
+}
 export async function loadMyReceiptDocuments(organizationId) {
   const client = requireClient(); const userId = (await client.auth.getUser()).data.user?.id;
-  const { data, error } = await client.from('timefit_user_finance_documents').select('id,title,file_name,processing_status,processing_error,extracted_data,created_at').eq('organization_id', organizationId).eq('document_type', 'receipt').eq('uploaded_by', userId).order('created_at', { ascending: false }).limit(20);
+  const { data, error } = await client.from('timefit_user_finance_documents').select('id,title,file_name,processing_status,review_status,processing_error,extracted_data,cost_center_id,payment_method,change_request_reason,page_count,created_at').eq('organization_id', organizationId).eq('document_type', 'receipt').eq('uploaded_by', userId).order('created_at', { ascending: false }).limit(40);
   if (error) throw error; return data || [];
 }
 export async function loadMyExpenseReceiptReminders(organizationId, staffId) {
@@ -456,11 +553,17 @@ export async function createManualExpense(input) {
   return cardConnectionRequest('expenses', { method: 'POST', body: input });
 }
 export async function processReceiptDocument({ organizationId, documentId }) {
-  const payload = await cardConnectionRequest('receipt-process', { method: 'POST', body: { organizationId, documentId } });
+  const payload = await cardConnectionRequest('receipt-process', { method: 'POST', body: { organizationId, documentId, action: 'enqueue' } });
   return payload;
 }
-export async function loadExpenseReviewQueue(organizationId, status = 'attention') {
-  const payload = await cardConnectionRequest('expense-review', { query: { organizationId, status } });
+export async function loadReceiptSubmission({ organizationId, documentId }) {
+  return cardConnectionRequest('receipt-process', { query: { organizationId, documentId } });
+}
+export async function confirmReceiptSubmission({ organizationId, documentId, patch }) {
+  return cardConnectionRequest('receipt-process', { method: 'PATCH', body: { organizationId, documentId, action: 'submitter_confirm', patch } });
+}
+export async function loadExpenseReviewQueue(organizationId, status = 'attention', costCenterId = '') {
+  const payload = await cardConnectionRequest('expense-review', { query: { organizationId, status, ...(costCenterId ? { costCenterId } : {}) } });
   return payload.documents || [];
 }
 export async function reviewExpenseMatch({ organizationId, matchId, action }) {
@@ -469,6 +572,14 @@ export async function reviewExpenseMatch({ organizationId, matchId, action }) {
 }
 export async function bulkConfirmExpenseMatches({ organizationId, matchIds }) {
   return cardConnectionRequest('expense-review', { method: 'POST', body: { organizationId, action: 'bulk_confirm', matchIds } });
+}
+export async function requestReceiptChange({ organizationId, documentId, reason }) {
+  const payload = await cardConnectionRequest('expense-review', { method: 'POST', body: { organizationId, documentId, reason, action: 'request_change' } });
+  return payload.result;
+}
+export async function approveReceiptExpense({ organizationId, documentId, expenseId }) {
+  const payload = await cardConnectionRequest('expense-review', { method: 'POST', body: { organizationId, documentId, expenseId, action: 'approve_receipt' } });
+  return payload.result;
 }
 export async function updateExpenseDraft({ organizationId, expenseId, transactionDate, totalAmount, merchantName, merchantBusinessNumber, category, reason, rememberRule }) {
   const payload = await cardConnectionRequest('expense-review', { method: 'PATCH', body: { organizationId, expenseId, transactionDate, totalAmount, merchantName, merchantBusinessNumber, category, reason, rememberRule } });
@@ -681,7 +792,7 @@ export async function runMonthEndOperations({ organizationId, targetMonth }) {
 }
 export async function createManualStaff({ organizationId, name, phone, department, categoryId, jobTitle, payType, hourlyWage, dailyWage, monthlySalary, annualSalary, joinedOn }) {
   const { data, error } = await requireClient().rpc('timefit_user_create_manual_staff', {
-    p_name: name, p_phone: phone, p_department: department || null, p_job_title: jobTitle || null,
+    p_organization_id: organizationId, p_name: name, p_phone: phone, p_department: department || null, p_job_title: jobTitle || null,
     p_pay_type: payType, p_hourly_wage: hourlyWage || null, p_daily_wage: dailyWage || null, p_monthly_salary: monthlySalary || null, p_annual_salary: annualSalary || null, p_joined_on: joinedOn || null, p_category_id: categoryId || null,
   });
   if (error) throw error; return data;

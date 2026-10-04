@@ -8,22 +8,6 @@ supabase/
 *.md
 .git/
 
-# Do not upload local Vite output; Vercel builds it from source.
+# Do not upload local build output; Vercel builds it from source.
 dist/
-
-# Hobby deployment: legacy and not-yet-released finance endpoints.
-api/tossplace.js
-api/sales-dashboard.js
-api/menu-sales-dashboard.js
-api/card-connections.js
-api/card-connection-assets.js
-api/card-sync.js
-api/card-sync-worker.js
-api/receipt-process.js
-api/expense-review.js
-api/finance-report.js
-api/closeouts.js
-api/expense-exceptions.js
-api/expense-reminder-worker.js
-api/expenses.js
-api/expense-detail.js
+.next/

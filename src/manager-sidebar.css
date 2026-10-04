@@ -1,0 +1,4 @@
+.manager-sidebar-nav{align-content:start;overflow-y:auto;min-height:0}
+.manager-sidebar-section{display:grid;gap:5px;padding-top:15px;margin-top:9px;border-top:1px solid #edf0f3}
+.manager-sidebar-heading{padding:0 13px 4px;color:#8b95a1;font-size:11px;font-weight:700}
+@media(max-width:950px){.manager-sidebar-section{padding-top:10px;margin-top:5px}.manager-sidebar-heading{display:none}}

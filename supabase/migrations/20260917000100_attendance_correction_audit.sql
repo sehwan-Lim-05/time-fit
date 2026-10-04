@@ -1,5 +1,5 @@
 -- Corrections are atomic, owner-only, audited, and reject stale forms.
-create table public.timefit_user_attendance_corrections (
+create table if not exists public.timefit_user_attendance_corrections (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.timefit_user_organizations(id) on delete cascade,
   staff_id uuid not null references public.timefit_user_staff(id) on delete cascade,
@@ -10,7 +10,23 @@ create table public.timefit_user_attendance_corrections (
   corrected_by uuid not null references auth.users(id),
   created_at timestamptz not null default now()
 );
+-- Some installations created this audit table before recording this migration.
+-- Never silently adopt an incompatible pre-existing relation.
+do $$
+declare v_columns text[];
+begin
+  select array_agg(column_name order by column_name) into v_columns
+  from information_schema.columns
+  where table_schema = 'public' and table_name = 'timefit_user_attendance_corrections';
+  if v_columns is distinct from array[
+    'after_record', 'before_record', 'corrected_by', 'created_at', 'id',
+    'organization_id', 'reason', 'staff_id', 'work_date'
+  ]::text[] then
+    raise exception 'Existing attendance correction audit schema differs; inspect before migration';
+  end if;
+end $$;
 alter table public.timefit_user_attendance_corrections enable row level security;
+drop policy if exists "owner reads attendance corrections" on public.timefit_user_attendance_corrections;
 create policy "owner reads attendance corrections" on public.timefit_user_attendance_corrections
 for select to authenticated using (exists (
   select 1 from public.timefit_user_organizations o where o.id = organization_id and o.owner_id = auth.uid()

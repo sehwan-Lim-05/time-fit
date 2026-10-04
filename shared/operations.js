@@ -1,12 +1,32 @@
 export const kstDate = (value = new Date()) => new Date(new Date(value).getTime() + 9 * 3600000).toISOString().slice(0, 10);
 export const addDays = (date, days) => new Date(Date.parse(`${date}T00:00:00Z`) + days * 86400000).toISOString().slice(0, 10);
+export function payrollAttendanceRange(month, today = kstDate()) {
+  const [year, monthNumber] = month.split('-').map(Number);
+  const monthEnd = new Date(Date.UTC(year, monthNumber, 0)).toISOString().slice(0, 10);
+  return { from: `${month}-01`, to: month === today.slice(0, 7) ? addDays(today, -1) : monthEnd };
+}
 export const validDate = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(`${value}T00:00:00Z`)) && addDays(value, 0) === value;
 export function lastCompleteWeek(today = kstDate()) {
   const day = new Date(`${today}T00:00:00Z`).getUTCDay();
   const from = addDays(today, -((day + 6) % 7) - 7);
   return { from, to: addDays(from, 6), previousFrom: addDays(from, -7), previousTo: addDays(from, -1) };
 }
+export function recentCompletedWeek(today = kstDate()) {
+  const to = addDays(today, -1);
+  const from = addDays(to, -6);
+  return { from, to, previousFrom: addDays(from, -7), previousTo: addDays(from, -1) };
+}
 export const changePercent = (current, previous) => previous > 0 ? (current - previous) / previous * 100 : null;
+
+export function staffTodayStatus(attendance, schedules = [], staffId, today = kstDate(), now = new Date()) {
+  if (attendance?.checked_out_at) return '퇴근 완료';
+  if (attendance?.checked_in_at) return '근무 중';
+  const schedule = schedules.find(row => row.staff_id === staffId && row.work_date === today && row.approval_status === 'approved');
+  if (!schedule) return '일정 없음';
+  if (schedule.is_day_off) return '휴무';
+  if (!schedule.starts_at) return '일정 확인 필요';
+  return Date.parse(`${today}T${schedule.starts_at}+09:00`) > +now ? '예정' : '미출근';
+}
 
 export function validAttendanceCorrection({ date, checkedIn, checkedOut, reason, requireCheckout = false }, now = new Date()) {
   const start = Date.parse(`${checkedIn}+09:00`), end = checkedOut ? Date.parse(`${checkedOut}+09:00`) : null;
@@ -39,62 +59,65 @@ export function attendanceIssues(employees, { from, to, now = new Date(), leaves
   return issues.sort((a, b) => a.date.localeCompare(b.date) || a.employee.name.localeCompare(b.employee.name));
 }
 
-export function weeklySales(orders, daily, range, connection) {
+const salesDelta = (current, previous) => ({
+  amount: Number(current || 0) - Number(previous || 0),
+  percent: Number(previous) > 0 ? (Number(current || 0) - Number(previous)) / Number(previous) * 100 : null,
+});
+
+const paidLine = line => {
+  const quantity = Number(line?.quantity);
+  const price = Number(line?.itemPrice?.priceValue);
+  if (!line?.item?.title || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(price) || price <= 0) return null;
+  const unit = Math.max(1, Number(line.itemPrice?.priceUnit) || 1);
+  const options = (line.optionChoices || []).reduce((sum, option) => sum + (Number(option?.priceValue) || 0) * Math.max(1, Number(option?.quantity) || 1), 0);
+  const code = String(line.item?.code || line.item?.id || '').trim();
+  const category = String(line.item?.category?.title || '미분류').trim();
+  return { key: code || `${line.item.title.trim().toLowerCase()}:${category.toLowerCase()}`, code: code || null, name: line.item.title, category, quantity, sales: price * unit * quantity + options };
+};
+
+export function weeklySales(orders, daily, range, connection, syncRuns = []) {
+  const completedRun = (from, to) => syncRuns.find(run => run.status === 'succeeded' && run.page_complete
+    && Date.parse(run.window_from) <= Date.parse(`${from}T00:00:00+09:00`)
+    && Date.parse(run.window_to) >= Date.parse(`${to}T23:59:59.999+09:00`));
   const summarize = (from, to) => {
     const days = Array.from({ length: 7 }, (_, i) => {
       const date = addDays(from, i);
       const rows = orders.filter(order => kstDate(order.ordered_at) === date);
       const completed = rows.filter(order => order.state === 'COMPLETED');
       const cache = daily.find(row => row.sales_date === date);
-      return { date, revenue: completed.reduce((sum, order) => sum + Number(order.total_amount), 0), orders: completed.length, covered: Boolean(cache && Number(cache.order_count) === rows.length) };
+      const revenue = completed.reduce((sum, order) => sum + Number(order.total_amount), 0);
+      const cancelled = rows.filter(order => String(order.state || '').toLowerCase().includes('cancel')).length;
+      const cacheMatched = Boolean(cache
+        && Number(cache.order_count) === rows.length
+        && (cache.completed_order_count === undefined || Number(cache.completed_order_count) === completed.length)
+        && (cache.completed_amount === undefined || Number(cache.completed_amount) === revenue));
+      return { date, revenue, orders: completed.length, cancelled, average: completed.length ? revenue / completed.length : null, covered: cacheMatched, dataStatus: cache?.finalization_status || (cacheMatched ? 'captured' : 'incomplete') };
     });
     const completed = orders.filter(order => order.state === 'COMPLETED' && kstDate(order.ordered_at) >= from && kstDate(order.ordered_at) <= to);
     const menus = new Map();
-    let menuComplete = true;
-    for (const order of completed) {
-      if (!Array.isArray(order.raw_order?.lineItems) || !order.raw_order.lineItems.length) menuComplete = false;
-    }
-    for (const order of completed) for (const line of (Array.isArray(order.raw_order?.lineItems) ? order.raw_order.lineItems : [])) {
-      const quantity = Number(line.quantity), price = Number(line.itemPrice?.priceValue);
-      if (!line.item?.title || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(price) || price < 0) { menuComplete = false; continue; }
-      if (price === 0) continue;
-      const name = line.item.title;
-      menus.set(name, (menus.get(name) || 0) + quantity);
+    for (const order of completed) for (const line of order.raw_order?.lineItems || []) {
+      const item = paidLine(line); if (!item) continue;
+      const existing = menus.get(item.key) || { ...item, quantity: 0, sales: 0, orders: new Set() };
+      existing.quantity += item.quantity; existing.sales += item.sales; existing.orders.add(order.order_id);
+      menus.set(item.key, existing);
     }
     const revenue = days.reduce((sum, day) => sum + day.revenue, 0);
     const count = completed.length;
-    return { from, to, days, revenue, orders: count, average: count ? revenue / count : null, menus: [...menus].map(([name, quantity]) => ({ name, quantity })), menuComplete, covered: !connection?.last_error && days.every(day => day.covered) && Date.parse(connection?.last_synced_at) >= Date.parse(`${addDays(to, 1)}T00:00:00+09:00`) };
+    const cancelled = days.reduce((sum, day) => sum + day.cancelled, 0);
+    const run = completedRun(from, to);
+    const revised = days.some(day => day.dataStatus === 'revised');
+    const covered = days.every(day => day.covered) && Boolean(run);
+    return { from, to, days, revenue, orders: count, cancelled, average: count ? revenue / count : null, menus: [...menus.values()].map(item => ({ ...item, orders: item.orders.size })), menuComplete: completed.every(order => Array.isArray(order.raw_order?.lineItems) && order.raw_order.lineItems.length > 0), covered, status: covered ? (revised ? 'revised' : 'finalized') : 'incomplete', run: run || null };
   };
   const current = summarize(range.from, range.to), previous = summarize(range.previousFrom, range.previousTo);
   const comparable = current.covered && previous.covered;
   const menuComparable = comparable && current.menuComplete && previous.menuComplete;
-  const menus = current.menus.sort((a, b) => b.quantity - a.quantity || a.name.localeCompare(b.name)).slice(0, 5).map(menu => ({ ...menu, previous: menuComparable ? previous.menus.find(row => row.name === menu.name)?.quantity || 0 : null }));
+  const menus = current.menus.sort((a, b) => b.sales - a.sales || b.quantity - a.quantity || a.name.localeCompare(b.name)).slice(0, 10).map(menu => { const old = previous.menus.find(row => row.key === menu.key); return { key: menu.key, code: menu.code, name: menu.name, category: menu.category, quantity: menu.quantity, sales: menu.sales, orders: menu.orders, share: current.revenue ? menu.sales / current.revenue * 100 : 0, previous: menuComparable ? old?.quantity || 0 : null, previousSales: menuComparable ? old?.sales || 0 : null }; });
+  const deltas = { revenue: salesDelta(current.revenue, previous.revenue), orders: salesDelta(current.orders, previous.orders), average: current.average === null ? { amount: null, percent: null } : salesDelta(current.average, previous.average), cancelled: salesDelta(current.cancelled, previous.cancelled) };
+  const coverageRuns = [current.run, previous.run].filter(Boolean);
+  const coveredFrom = coverageRuns.length ? coverageRuns.map(run => run.window_from).sort()[0] : null;
+  const coveredTo = coverageRuns.length ? coverageRuns.map(run => run.window_to).sort().at(-1) : null;
   delete current.menus; delete previous.menus;
-  return { current, previous, comparable, menuComparable, menus, syncedAt: connection?.last_synced_at || null, syncError: Boolean(connection?.last_error), connected: Boolean(connection?.merchant_id) };
-}
-
-export function weeklySalesFromDaily(snapshot, range) {
-  const connection = snapshot?.connection;
-  const complete = Boolean(connection?.merchant_id && !connection.last_error
-    && Date.parse(snapshot?.coveredThrough) >= Date.parse(`${addDays(range.to, 1)}T00:00:00+09:00`));
-  const summarize = (from, to) => {
-    const menus = new Map();
-    let menuComplete = true;
-    const days = Array.from({ length: 7 }, (_, i) => {
-      const date = addDays(from, i);
-      const row = snapshot?.daily?.find(day => day.sales_date === date);
-      if (row && !row.menu_complete) menuComplete = false;
-      for (const menu of row?.menus || []) menus.set(menu.name, (menus.get(menu.name) || 0) + Number(menu.quantity));
-      return { date, revenue: Number(row?.completed_amount || 0), orders: Number(row?.completed_order_count || 0), covered: complete };
-    });
-    const revenue = days.reduce((sum, day) => sum + day.revenue, 0);
-    const orders = days.reduce((sum, day) => sum + day.orders, 0);
-    return { from, to, days, revenue, orders, average: orders ? revenue / orders : null, menuComplete, covered: complete, menus };
-  };
-  const current = summarize(range.from, range.to), previous = summarize(range.previousFrom, range.previousTo);
-  const menuComparable = complete && current.menuComplete && previous.menuComplete;
-  const menus = [...current.menus].map(([name, quantity]) => ({ name, quantity, previous: menuComparable ? previous.menus.get(name) || 0 : null }))
-    .sort((a, b) => b.quantity - a.quantity || a.name.localeCompare(b.name)).slice(0, 5);
-  delete current.menus; delete previous.menus;
-  return { current, previous, comparable: complete, menuComparable, menus, syncedAt: connection?.last_synced_at || null, syncError: Boolean(connection?.last_error), connected: Boolean(connection?.merchant_id) };
+  delete current.run; delete previous.run;
+  return { current, previous, comparable, menuComparable, menus, deltas, status: { state: !comparable ? 'incomplete' : current.status === 'revised' || previous.status === 'revised' ? 'revised' : 'finalized', comparable, lastSyncedAt: connection?.last_synced_at || null, coveredFrom, coveredTo, pageComplete: coverageRuns.length === 2 && coverageRuns.every(run => run.page_complete), cacheMatched: current.days.every(day => day.covered) && previous.days.every(day => day.covered), revisionCount: daily.reduce((sum, row) => sum + Number(row.revision_number || 0), 0), errorMessage: connection?.last_error || null }, syncedAt: connection?.last_synced_at || null, syncError: Boolean(connection?.last_error), connected: Boolean(connection?.merchant_id) };
 }

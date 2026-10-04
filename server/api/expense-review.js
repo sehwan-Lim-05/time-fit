@@ -1,4 +1,6 @@
-import { authorizeFinance, financeError, financeRest, financeServerConfigured, methodNotAllowed, serviceHeaders } from './_finance-server.js';
+import { authorizeFinance, canAccessFinanceCostCenter, financeError, financeRest, financeServerConfigured, methodNotAllowed, serviceHeaders } from './_finance-server.js';
+import { recoverStaleReceiptRuns } from './receipt-process.js';
+import { expenseAmountError } from '../domain/expense-amount-validation.js';
 
 async function userRpc(token, name, body) {
   const response = await fetch(`${process.env.SUPABASE_URL}/rest/v1/rpc/${name}`, {
@@ -23,24 +25,35 @@ export default async function handler(req, res) {
   if (!['GET','POST','PATCH'].includes(req.method)) return methodNotAllowed(res);
   if (!financeServerConfigured()) return res.status(503).json({ ok: false, error: '금융 처리 서버 설정이 필요합니다.' });
   const organizationId = req.method === 'GET' ? req.query?.organizationId : req.body?.organizationId;
-  const auth = await authorizeFinance(req, organizationId);
+  const auth = await authorizeFinance(req, organizationId, { permissionsAny: req.method === 'GET' ? ['expense.receipt.review','expense.manage','finance.view'] : ['expense.receipt.review','expense.manage'] });
   if (!auth) return res.status(req.headers.authorization ? 403 : 401).json({ ok: false, error: '관리자 인증이 필요합니다.' });
 
   try {
     if (req.method === 'GET') {
+      await recoverStaleReceiptRuns(organizationId);
       const requestedStatus = req.query?.status;
-      const statusFilter = requestedStatus === 'attention' ? 'processing_status=in.(review_required,failed)' : `processing_status=eq.${encodeURIComponent(['review_required','matched','failed'].includes(requestedStatus) ? requestedStatus : 'review_required')}`;
-      const documents = await financeRest(`timefit_user_finance_documents?organization_id=eq.${encodeURIComponent(organizationId)}&document_type=eq.receipt&${statusFilter}&select=id,title,file_name,storage_path,mime_type,document_date,processing_status,extracted_data,processing_error,processed_at,created_at&order=created_at.desc&limit=100`);
+      const allowedReviews = ['submitted','submitter_review','manager_review','change_requested','approved','rejected','withdrawn'];
+      const statusFilter = requestedStatus === 'attention' || !requestedStatus
+        ? 'or=(processing_status.in.(uploaded,queued,processing,failed),review_status.in.(submitted,submitter_review,manager_review,change_requested,resubmitted))'
+        : requestedStatus === 'failed' ? 'processing_status=eq.failed'
+          : requestedStatus === 'processing' ? 'processing_status=in.(uploaded,queued,processing)'
+          : `review_status=eq.${encodeURIComponent(allowedReviews.includes(requestedStatus) ? requestedStatus : 'manager_review')}`;
+      const costCenterFilter = req.query?.costCenterId ? `&cost_center_id=eq.${encodeURIComponent(req.query.costCenterId)}` : '';
+      const allDocuments = await financeRest(`timefit_user_finance_documents?organization_id=eq.${encodeURIComponent(organizationId)}&document_type=eq.receipt&${statusFilter}${costCenterFilter}&select=id,title,file_name,storage_path,mime_type,document_date,processing_status,review_status,cost_center_id,payment_method,change_request_reason,extracted_data,processing_error,processed_at,created_at&order=created_at.desc&limit=100`);
+      const documents = [];
+      for (const document of allDocuments) if (await canAccessFinanceCostCenter(auth, organizationId, document.cost_center_id)) documents.push(document);
       const documentIds = documents.map(item => item.id);
       const matches = documentIds.length ? await financeRest(`timefit_user_expense_matches?organization_id=eq.${encodeURIComponent(organizationId)}&document_id=in.(${documentIds.map(encodeURIComponent).join(',')})&select=*,expense:timefit_user_expenses(*),transaction:timefit_user_card_transaction_groups(*,card:timefit_user_corporate_cards(issuer,nickname,last4))&order=score.desc`) : [];
       const sources = documentIds.length ? await financeRest(`timefit_user_expense_sources?organization_id=eq.${encodeURIComponent(organizationId)}&source_type=eq.receipt&source_id=in.(${documentIds.map(encodeURIComponent).join(',')})&select=source_id,expense:timefit_user_expenses(*)`) : [];
-      return res.status(200).json({ ok: true, documents: documents.map(document => ({ ...document, expense: sources.find(source => source.source_id === document.id)?.expense || null, matches: matches.filter(match => match.document_id === document.id) })) });
+      const lines = documentIds.length ? await financeRest(`timefit_user_receipt_line_items?document_id=in.(${documentIds.map(encodeURIComponent).join(',')})&select=id,document_id,line_number,item_name_raw,item_name_normalized,quantity,unit,unit_price,discount_amount,line_amount,tax_type,confidence&order=line_number.asc`) : [];
+      return res.status(200).json({ ok: true, documents: documents.map(document => ({ ...document, expense: sources.find(source => source.source_id === document.id)?.expense || null, matches: matches.filter(match => match.document_id === document.id), lineItems: lines.filter(line => line.document_id === document.id) })) });
     }
 
     if (req.method === 'PATCH') {
       const { expenseId, transactionDate, totalAmount, merchantName, merchantBusinessNumber, category, reason, rememberRule } = req.body || {};
       const amount = Number(totalAmount);
       if (!expenseId || !transactionDate || !Number.isFinite(amount) || amount < 0) return res.status(400).json({ ok: false, error: '거래일과 총금액을 확인해 주세요.' });
+      if (expenseAmountError(amount)) return res.status(400).json({ ok: false, code: 'expense_amount_outlier', error: expenseAmountError(amount) });
       const rows = await financeRest(`timefit_user_expenses?id=eq.${encodeURIComponent(expenseId)}&organization_id=eq.${encodeURIComponent(organizationId)}&select=id,status`);
       if (!rows.length) return res.status(404).json({ ok: false, error: '지출 초안을 찾을 수 없습니다.' });
       if (rows[0].status === 'excluded') return res.status(409).json({ ok: false, error: '제외된 지출은 수정할 수 없습니다.' });
@@ -56,6 +69,24 @@ export default async function handler(req, res) {
     }
 
     const action = String(req.body?.action || '');
+    if (['request_change','approve_receipt'].includes(action)) {
+      const documentId = String(req.body?.documentId || '');
+      const rows = await financeRest(`timefit_user_finance_documents?id=eq.${encodeURIComponent(documentId)}&organization_id=eq.${encodeURIComponent(organizationId)}&document_type=eq.receipt&select=id,cost_center_id,review_status`);
+      const document = rows[0];
+      if (!document || !await canAccessFinanceCostCenter(auth, organizationId, document.cost_center_id)) return res.status(404).json({ ok: false, error: '검토할 영수증을 찾을 수 없습니다.' });
+      if (action === 'request_change') {
+        const reason = String(req.body?.reason || '').trim();
+        if (reason.length < 2 || reason.length > 500) return res.status(400).json({ ok: false, error: '수정이 필요한 내용을 2~500자로 입력해 주세요.' });
+        const result = await userRpc(auth.token, 'timefit_user_review_receipt', { p_document_id: documentId, p_action: action, p_reason: reason, p_expense_id: null });
+        return res.status(200).json({ ok: true, result });
+      }
+      const expenseId = String(req.body?.expenseId || '');
+      const expenses = await financeRest(`timefit_user_expenses?id=eq.${encodeURIComponent(expenseId)}&organization_id=eq.${encodeURIComponent(organizationId)}&select=id,total_amount,status&limit=1`);
+      if (!expenses[0]) return res.status(404).json({ ok: false, error: '확정할 지출을 찾을 수 없습니다.' });
+      if (expenseAmountError(expenses[0].total_amount)) return res.status(409).json({ ok: false, code: 'expense_amount_outlier', error: expenseAmountError(expenses[0].total_amount) });
+      const result = await userRpc(auth.token, 'timefit_user_review_receipt', { p_document_id: documentId, p_action: action, p_reason: null, p_expense_id: expenseId });
+      return res.status(200).json({ ok: true, result });
+    }
     if (action === 'bulk_confirm') {
       const requestedIds = [...new Set(Array.isArray(req.body?.matchIds) ? req.body.matchIds.filter(Boolean).slice(0, 50) : [])];
       if (!requestedIds.length) return res.status(400).json({ ok: false, error: '일괄 확정할 항목을 선택해 주세요.' });

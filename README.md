@@ -14,10 +14,13 @@ npm run dev
 ## 구성
 
 - `docs/01-product-plan.md`: 서비스 1차 기획서
-- `src/main.jsx`: 대시보드와 화면 전환을 포함한 UI 시작점
+- `pages/`: Next.js 화면 및 통합 API 라우트 진입점
+- `src/main.jsx`: 대시보드와 화면 전환을 포함한 클라이언트 UI
 - `src/styles.css`: 반응형 관리자 UI 스타일
 
 현재 프론트엔드는 브라우저 상태 기반의 MVP이며, API와 PostgreSQL 스키마는 `backend/`에 분리했습니다.
+
+운영 API는 `pages/api/[...route].js` 한 함수에서 기존 `/api/*` 경로를 유지하며, 기능별 핸들러는 `server/routes/`에 모여 있습니다. 클라이언트 공개 환경 변수는 `NEXT_PUBLIC_*`를 사용합니다. 기존 Vercel의 `VITE_SUPABASE_*` 설정은 `next.config.mjs`에서 전환 기간 동안만 대체값으로 읽습니다. 서버 비밀값은 공개 접두사를 붙이지 않습니다.
 
 ## 백엔드·데이터베이스
 

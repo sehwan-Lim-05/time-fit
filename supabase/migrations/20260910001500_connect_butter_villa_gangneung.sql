@@ -10,7 +10,8 @@ begin
    limit 1;
 
   if v_organization_id is null then
-    raise exception 'butter_villa_gangneung_organization_not_found';
+    raise notice 'Skipping Butter Villa Gangneung connection: organization not found';
+    return;
   end if;
 
   select * into v_source
@@ -21,7 +22,8 @@ begin
    limit 1;
 
   if v_source is null then
-    raise exception 'butter_villa_connection_source_not_found';
+    raise notice 'Skipping Butter Villa Gangneung connection: source connection not found';
+    return;
   end if;
 
   insert into public.timefit_user_tossplace_connections (

@@ -1,23 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import cardConnections from '../api/card-connections.js';
-import cardConnectionReauth from '../api/card-connection-reauth.js';
-import cardSync from '../api/card-sync.js';
-import cardSyncWorker from '../api/card-sync-worker.js';
-import { matchScore, matchingClassificationRule, receiptFingerprint, receiptRetryBlocker, structuredReceipt } from '../api/receipt-process.js';
-import expenseReview, { eligibleBulkMatches } from '../api/expense-review.js';
-import { buildCloseoutCompleteness, buildDailyLaborMap, buildFinanceReport, compareFinanceReports, groupFinanceSeries, previousFinanceRange } from '../api/finance-report.js';
-import closeouts from '../api/closeouts.js';
-import { mergeReceiptExtractions, validateReceiptExtraction } from '../api/_receipt-llm.js';
-import { buildExpenseExceptions } from '../api/expense-exceptions.js';
-import expenseReminderWorker, { dueReminderNumber } from '../api/expense-reminder-worker.js';
+import cardConnections from '../server/api/card-connections.js';
+import cardConnectionReauth from '../server/api/card-connection-reauth.js';
+import cardSync from '../server/api/card-sync.js';
+import cardSyncWorker from '../server/api/card-sync-worker.js';
+import { matchScore, matchingClassificationRule, receiptFingerprint, receiptRetryBlocker, structuredReceipt } from '../server/api/receipt-process.js';
+import expenseReview, { eligibleBulkMatches } from '../server/api/expense-review.js';
+import { buildCloseoutCompleteness, buildDailyLaborMap, buildFinanceReport, buildMerchantExpenseGroups, compareFinanceReports, groupFinanceSeries, previousFinanceRange } from '../server/api/finance-report.js';
+import { findPriorMerchantClassification, inferExpenseCategory } from '../server/domain/expense-classification.js';
+import closeouts from '../server/api/closeouts.js';
+import { mergeReceiptExtractions, validateReceiptExtraction } from '../server/api/_receipt-llm.js';
+import { buildExpenseExceptions } from '../server/api/expense-exceptions.js';
+import expenseReminderWorker, { dueReminderNumber } from '../server/api/expense-reminder-worker.js';
 import { analyzeReceiptPixels } from '../src/features/finance/receiptQuality.js';
-import expenses, { summarizeExpenses, validateManualExpense } from '../api/expenses.js';
-import expenseDetail from '../api/expense-detail.js';
+import expenses, { summarizeExpenses, validateManualExpense } from '../server/api/expenses.js';
+import expenseDetail from '../server/api/expense-detail.js';
 import { expenseLedgerCsv } from '../src/features/finance/expenseExport.js';
 import { financeReportCsvRows } from '../src/features/finance/financeReportExport.js';
-import { normalizeHyphenCards, normalizeHyphenEvents } from '../api/providers/hyphen-card-provider.js';
-import { cardRetryPlan, cardSyncErrorCategory, cardSyncWindow } from '../api/_card-sync-runner.js';
+import { normalizeHyphenCards, normalizeHyphenEvents } from '../server/api/providers/hyphen-card-provider.js';
+import { cardRetryPlan, cardSyncErrorCategory, cardSyncWindow } from '../server/api/_card-sync-runner.js';
 
 function responseRecorder() {
   return {
@@ -183,6 +184,22 @@ test('매출·확정 지출·월 급여 초안으로 운영순익을 계산한�
   assert.equal(report.completeness.payrollComplete, true);
 });
 
+test('비정상적으로 큰 확정 지출은 결산 합계에서 격리한다', () => {
+  const report = buildFinanceReport({
+    from: '2026-09-01', to: '2026-09-01', asOfDate: '2026-09-02',
+    salesRows: [{ sales_date: '2026-09-01', completed_amount: 1000000, completed_order_count: 10 }],
+    expenses: [
+      { id: 'normal', transaction_date: '2026-09-01', total_amount: 200000, category: '재료비' },
+      { id: 'ocr-outlier', transaction_date: '2026-09-01', total_amount: 16677165153195, category: null },
+    ],
+  });
+  assert.equal(report.totals.confirmedExpenses, 200000);
+  assert.equal(report.totals.operatingProfit, 800000);
+  assert.equal(report.anomalies.count, 1);
+  assert.equal(report.anomalies.amount, 16677165153195);
+  assert.equal(report.completeness.reviewComplete, false);
+});
+
 test('버터빌라 손익 기준으로 구매비·카드수수료·매출연동 임대료를 계산한다', () => {
   const report = buildFinanceReport({
     from: '2026-09-01', to: '2026-09-01', cardFeeRate: 0.022, revenueRentRate: 0.15,
@@ -195,6 +212,7 @@ test('버터빌라 손익 기준으로 구매비·카드수수료·매출연동 
   });
   assert.equal(report.totals.kitchenPurchases, 200000);
   assert.equal(report.totals.hallPurchases, 50000);
+  assert.deepEqual(report.actualTotals.categoryBreakdown, { '주방 식자재': 200000, '홀 음료·주류': 50000, '소모품': 30000 });
   assert.equal(report.totals.cardFees, 22000);
   assert.equal(report.totals.rentExpense, 150000);
   assert.equal(report.totals.averageOrderValue, 25000);
@@ -207,6 +225,7 @@ test('연말 보고서는 월별 순익으로 묶고 직전 동기간 증감률�
   assert.deepEqual(previousFinanceRange('2026-01-01', '2026-12-31', 'annual'), { from: '2025-01-01', to: '2025-12-31' });
   assert.deepEqual(previousFinanceRange('2026-03-01', '2026-03-31', 'monthly'), { from: '2026-02-01', to: '2026-02-28' });
   assert.deepEqual(compareFinanceReports(current, previous).netSales, { current: 120, previous: 100, changeRate: 20 });
+  assert.equal(compareFinanceReports({ totals: { netSales: 0 } }, { totals: { netSales: 0 } }).netSales.changeRate, null);
   const grouped = groupFinanceSeries([
     { date: '2026-01-01', sales: 10, operatingExpenses: 2, laborCost: 3, operatingProfit: 5 },
     { date: '2026-01-02', sales: 20, operatingExpenses: 4, laborCost: 6, operatingProfit: 10 },
@@ -258,6 +277,14 @@ test('결산 CSV에는 증빙·카드 상태와 확정 감사정보가 포함된
   assert.equal(rows[6][5], 1);
 });
 
+test('급여 초안이 없으면 결산 내보내기에 잠정 순익을 명시한다', () => {
+  const rows = financeReportCsvRows({ periodType: 'monthly', report: {
+    from: '2026-09-01', to: '2026-09-30', totals: { netSales: 10, operatingExpenses: 2, laborCost: 0, operatingProfit: 8 }, series: [],
+    completeness: { payrollComplete: false }, audit: {},
+  } });
+  assert.ok(rows.some(row => row[0] === '순익 판정' && row[1].includes('잠정')));
+});
+
 test('지출 원장 합계에서 제외 건을 빼고 미증빙 건을 집계한다', () => {
   const summary = summarizeExpenses([
     { total_amount: 100000, status: 'confirmed', sources: [{ source_type: 'receipt' }] },
@@ -277,6 +304,7 @@ test('직접 지출은 총액과 공급가액·부가세 합계를 검증한다'
   assert.equal(validateManualExpense({ transactionDate: '2026-09-10', totalAmount: 11000, supplyAmount: 10000, vatAmount: 1000 }).error, undefined);
   assert.match(validateManualExpense({ transactionDate: '2026-09-10', totalAmount: 12000, supplyAmount: 10000, vatAmount: 1000 }).error, /일치/);
   assert.match(validateManualExpense({ transactionDate: '', totalAmount: 0 }).error, /거래일/);
+  assert.match(validateManualExpense({ transactionDate: '2026-09-10', totalAmount: 16677165153195 }).error, /1,000,000,000원 이하/);
 });
 
 test('지출 상세 API는 로그인하지 않은 원천자료 조회를 차단한다', async () => {
@@ -356,6 +384,20 @@ test('오래된 미증빙 거래와 OCR 실패를 긴급 예외로 우선 정렬
   assert.equal(result.summary.missingReceipts, 1);
 });
 
+test('업로드 직후와 관리자 검토 대기 영수증을 현황 예외 업무함에 표시한다', () => {
+  const result = buildExpenseExceptions({
+    now: new Date('2026-09-10T12:00:00Z'),
+    documents: [
+      { id: 'queued', title: '업로드 영수증', processing_status: 'queued', review_status: 'submitted', created_at: '2026-09-10T11:59:00Z' },
+      { id: 'review', title: '검토 영수증', processing_status: 'ready', review_status: 'manager_review', extracted_data: { merchantName: '식자재마트', totalAmount: 120000 }, created_at: '2026-09-10T11:00:00Z' },
+    ],
+  });
+  assert.equal(result.summary.receiptReviews, 2);
+  assert.equal(result.items.find(item => item.id === 'document:queued').severity, 'info');
+  assert.match(result.items.find(item => item.id === 'document:queued').title, /분석 중/);
+  assert.match(result.items.find(item => item.id === 'document:review').description, /식자재마트.*120,000원/);
+});
+
 test('영수증 알림은 설정 주기에 맞춰 한 단계씩 생성하고 최대 횟수를 지킨다', () => {
   const now = new Date('2026-09-10T00:00:00Z');
   assert.equal(dueReminderNumber({ approvedAt: '2026-09-08T00:00:00Z', now }), null);
@@ -396,6 +438,25 @@ test('사업자번호 분류 규칙을 상호 규칙보다 우선 적용한다',
     ],
   );
   assert.equal(rule.id, 'business-rule'); assert.equal(rule.category, '재료비');
+});
+
+test('기존 업체 분류를 우선 재사용하고 신규 식자재 업체는 품목으로 분류한다', () => {
+  const prior = findPriorMerchantClassification(
+    { merchantName: '(주) 지프레시' },
+    [{ merchant_name: '주식회사 지프레시', category: '주방 식자재' }],
+  );
+  assert.equal(prior.category, '주방 식자재');
+  assert.deepEqual(inferExpenseCategory({ merchantName: '새로운 거래처', lineItems: [{ itemNameRaw: '버터 10개' }] }).category, '재료비');
+});
+
+test('같은 업체 지출은 합산하되 영수증 날짜와 품목은 업로드별로 보존한다', () => {
+  const groups = buildMerchantExpenseGroups([
+    { id: 'expense-1', merchant_name: '주식회사 지프레시', transaction_date: '2026-09-01', total_amount: 100000, category: '재료비', lineItems: [{ id: 'line-1', item_name_raw: '버터', quantity: 2, unit: '개', line_amount: 100000 }] },
+    { id: 'expense-2', merchant_name: '(주) 지프레시', transaction_date: '2026-09-08', total_amount: 53195, category: '재료비', lineItems: [{ id: 'line-2', item_name_raw: '우유', quantity: 1, unit: '박스', line_amount: 53195 }] },
+  ]);
+  assert.equal(groups.length, 1); assert.equal(groups[0].totalAmount, 153195); assert.equal(groups[0].receiptCount, 2);
+  assert.deepEqual(groups[0].uploads.map(upload => upload.transactionDate), ['2026-09-08','2026-09-01']);
+  assert.equal(groups[0].uploads[1].lineItems[0].name, '버터');
 });
 
 test('일괄 확정은 영수증별 95점 이상 최상위 후보만 허용한다', () => {

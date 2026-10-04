@@ -12,7 +12,8 @@ begin
    limit 1;
 
   if v_organization_id is null then
-    raise exception 'butterbutter_organization_not_found';
+    raise notice 'Skipping 버터버터 Toss Place connection: organization not found';
+    return;
   end if;
 
   select merchant_id into v_merchant_id
@@ -24,7 +25,8 @@ begin
    limit 1;
 
   if v_merchant_id is null then
-    raise exception 'butter_villa_merchant_not_found';
+    raise notice 'Skipping 버터버터 Toss Place connection: source merchant not found';
+    return;
   end if;
 
   insert into public.timefit_user_tossplace_connections (

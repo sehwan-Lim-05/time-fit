@@ -1,0 +1,14 @@
+.expense-workspace-tabs{display:flex;gap:8px;margin:0 0 18px;padding:6px;border:1px solid #e5eaf0;border-radius:14px;background:#fff}
+.expense-workspace-tabs button{flex:1;min-height:44px;padding:9px 12px;border:0;border-radius:9px;background:transparent;color:#64748b;font:700 13px inherit;cursor:pointer;white-space:nowrap}
+.expense-workspace-tabs button[aria-selected="true"]{background:#eaf3ff;color:#2766b3}
+.expense-workspace-tabs button:focus-visible{outline:3px solid #80b4f5;outline-offset:2px}
+.expense-workspace [role="tabpanel"][hidden]{display:none}
+.expense-settlement-title h2{margin:0 0 8px;font-size:22px;letter-spacing:-.8px}
+.expense-ledger>.card-title>.outline,.expense-exception-inbox>.card-title>.outline{flex:none;white-space:nowrap;min-width:84px;min-height:40px}
+@media(max-width:650px){
+  .expense-workspace-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;padding:5px}
+  .expense-workspace-tabs button{min-width:0;padding:9px 4px;font-size:12px}
+  .expense-ledger>.card-title,.expense-exception-inbox>.card-title{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:10px}
+  .expense-ledger>.card-title>div,.expense-exception-inbox>.card-title>div{min-width:0}
+  .expense-ledger>.card-title>.outline,.expense-exception-inbox>.card-title>.outline{min-width:78px;padding:9px 7px;font-size:11px}
+}

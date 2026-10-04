@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { calculateOperatingProfit, deduplicateCardEvents, summarizeCardEvents } from '../src/features/finance/cardDomain.js';
 import { mockCardProvider } from '../src/features/finance/mockCardProvider.js';
-import { cardProvider, mockServerCardProvider } from '../api/providers/mock-card-provider.js';
+import { cardProvider, mockServerCardProvider } from '../server/api/providers/mock-card-provider.js';
 
 test('동일 provider 이벤트를 재수집해도 한 번만 계산한다', async () => {
   const events = await mockCardProvider.fetchEvents();
