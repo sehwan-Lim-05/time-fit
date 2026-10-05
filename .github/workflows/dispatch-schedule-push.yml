@@ -1,0 +1,32 @@
+name: Dispatch schedule push
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: dispatch-schedule-push
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Trigger Supabase push dispatcher
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SCHEDULE_PUSH_DISPATCH_SECRET: ${{ secrets.SCHEDULE_PUSH_DISPATCH_SECRET }}
+        run: |
+          test -n "$SUPABASE_URL"
+          test -n "$SCHEDULE_PUSH_DISPATCH_SECRET"
+          curl --fail-with-body --silent --show-error \
+            --retry 2 \
+            --retry-all-errors \
+            --max-time 30 \
+            -X POST \
+            -H "content-type: application/json" \
+            -H "x-timefit-dispatch-secret: $SCHEDULE_PUSH_DISPATCH_SECRET" \
+            -d '{}' \
+            "$SUPABASE_URL/functions/v1/dispatch-schedule-push"
