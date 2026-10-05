@@ -38,6 +38,19 @@ export async function recordQrAttendance(payload) {
   return data;
 }
 
+export async function startAttendanceQrSession(organizationId) {
+  const { data, error } = await requireClient().rpc('timefit_user_start_attendance_qr', { p_organization_id: organizationId });
+  if (error) throw error; return data;
+}
+export async function rotateAttendanceQrSession(sessionId) {
+  const { data, error } = await requireClient().rpc('timefit_user_rotate_attendance_qr', { p_session_id: sessionId });
+  if (error) throw error; return data;
+}
+export async function stopAttendanceQrSession(sessionId) {
+  const { error } = await requireClient().rpc('timefit_user_stop_attendance_qr', { p_session_id: sessionId });
+  if (error) throw error;
+}
+
 export async function getAuthContext() {
   if (!supabase) return { session: null, profile: null, membership: null, invitation: null };
   let { data: { session } } = await requestWithTimeout(supabase.auth.getSession(), 'auth_session');
