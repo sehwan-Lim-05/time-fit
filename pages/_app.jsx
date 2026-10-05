@@ -12,6 +12,7 @@ import '../src/auth.css';
 import '../src/staff-categories.css';
 import '../src/management-accounts.css';
 import '../src/attendance-management.css';
+import '../src/att01-qr-display.css';
 import '../src/monthly-schedule-editor.css';
 import '../src/features/operations/operations.css';
 import '../src/manager-sidebar.css';
