@@ -4,6 +4,7 @@
   "crons": [
     { "path": "/api/sync-sales", "schedule": "0 13 * * *" },
     { "path": "/api/check-attendance-alerts", "schedule": "0 0 * * *" },
-    { "path": "/api/payroll-notifications", "schedule": "0 1 * * *" }
+    { "path": "/api/payroll-notifications", "schedule": "0 1 * * *" },
+    { "path": "/api/push-notification-worker", "schedule": "* * * * *" }
   ]
 }
