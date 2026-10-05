@@ -210,10 +210,25 @@ export default async function handler(req, res) {
     const results = [];
     for (const connection of connections) {
       if (!connection.merchant_id) continue;
-      const result = await syncConnection({ organizationId: connection.organization_id, merchantId: connection.merchant_id, page, size, mode, range, credentialSource: connection.credential_source, encryptedAccessKey: connection.encrypted_access_key, encryptedAccessSecret: connection.encrypted_access_secret });
-      results.push({ organizationId: connection.organization_id, ...result });
+      try {
+        const result = await syncConnection({ organizationId: connection.organization_id, merchantId: connection.merchant_id, page, size, mode, range, credentialSource: connection.credential_source, encryptedAccessKey: connection.encrypted_access_key, encryptedAccessSecret: connection.encrypted_access_secret });
+        results.push({ organizationId: connection.organization_id, status: 'completed', ...result });
+      } catch (error) {
+        console.error('Toss Place store sync failed', { organizationId: connection.organization_id, message: error.message });
+        await Promise.all([
+          markConnectionError(connection.organization_id, error.message || 'sync_failed'),
+          saveSyncFailure(connection.organization_id, error.message || 'sync_failed'),
+        ]);
+        results.push({ organizationId: connection.organization_id, status: 'failed', synchronized: 0, error: error.message });
+      }
     }
-    return res.status(200).json({ ok: true, mode, page, synchronized: results.reduce((sum, item) => sum + item.synchronized, 0), stores: results.length, results });
+    const failed = results.filter(result => result.status === 'failed').length;
+    return res.status(organizationId && failed ? 502 : 200).json({
+      ok: failed === 0, status: failed ? 'partial_failure' : 'completed', mode, page,
+      synchronized: results.reduce((sum, item) => sum + item.synchronized, 0),
+      stores: results.length, failed, results,
+      error: organizationId && failed ? results.find(result => result.status === 'failed')?.error : undefined,
+    });
   } catch (error) {
     if (organizationId) {
       await Promise.all([
