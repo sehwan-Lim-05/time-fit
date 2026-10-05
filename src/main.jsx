@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import QRCode from 'qrcode';
 import { openPayrollPrintView } from './payrollPdf';
 import { scheduledPayroll } from './payrollComparison';
 import { roundPayableMinutes } from './payrollRounding';
@@ -16,7 +17,7 @@ import ExpenseExceptionInbox from './features/finance/ExpenseExceptionInbox';
 import EmployeeReceiptSubmission from './features/finance/EmployeeReceiptSubmission';
 import ExpenseLedger from './features/finance/ExpenseLedger';
 import ManualExpenseForm from './features/finance/ManualExpenseForm';
-import { acceptEmployeeInvitation, activateTabletDevice, archiveCostCenter, bootstrapTossPlaceConnection, createCorporateCard, createFeedbackItem, createLeaveRequest, createManagementAccount, createManualStaff, createMeetingNote, deleteFinanceDocument, deleteStaffCategory, deleteWorkSchedule, disconnectCorporateCard, ensureManagerOrganization, getAuthContext, getCachedOrganizationSalesDashboard, getManagerTabletOrganization, getOrganizationSettings, getTabletDeviceContext, getTossPlaceConnection, grantStaffLeave, importCardTransactions, importFeedbackItems, inviteEmployeeByCode, isAuthSessionError, loadCardTransactions, loadCorporateCards, loadCostCenters, loadDriveReceiptUploads, loadFeedbackItems, loadFinanceDocuments, loadManagementAccounts, loadMeetingNotes, loadOperationalAlerts, loadOrganizationSalesDashboard, loadPayrollWorkspace, loadStaffCategories, loadStaffSensitiveProfile, loadTabletDevices, loadWorkforce, manageManagementAccount, markOperationalAlertRead, openFinanceDocument, previewTabletLeaveRequest, recordQrAttendance, reviewLeaveRequest, reviewWorkSchedule, revokeTabletDevice, runMonthEndOperations, saveCostCenter, saveCustomTossPlaceCredentials, saveOrganizationSettings, savePayrollContract, savePayrollDraft, saveStaffCategory, saveStaffOrder, saveStaffSensitiveProfile, saveTossPlaceConnection, saveWorkSchedule, saveWorkSchedulesBulk, sendSettlementEmail, signIn, signOut, signUp, supabase, syncOrganizationSales, tabletAttendance, tabletLeaveRequest, updateCorporateCard, updateFeedbackItem, updateStaffPhone, updateStaffProfile, uploadFinanceDocument, uploadReceiptToGoogleDrive, uploadStaffAvatar } from './lib/supabase';
+import { acceptEmployeeInvitation, activateTabletDevice, archiveCostCenter, bootstrapTossPlaceConnection, createCorporateCard, createFeedbackItem, createLeaveRequest, createManagementAccount, createManualStaff, createMeetingNote, deleteFinanceDocument, deleteStaffCategory, deleteWorkSchedule, disconnectCorporateCard, ensureManagerOrganization, getAuthContext, getCachedOrganizationSalesDashboard, getManagerTabletOrganization, getOrganizationSettings, getTabletDeviceContext, getTossPlaceConnection, grantStaffLeave, importCardTransactions, importFeedbackItems, inviteEmployeeByCode, isAuthSessionError, loadCardTransactions, loadCorporateCards, loadCostCenters, loadDriveReceiptUploads, loadFeedbackItems, loadFinanceDocuments, loadManagementAccounts, loadMeetingNotes, loadOperationalAlerts, loadOrganizationSalesDashboard, loadPayrollWorkspace, loadStaffCategories, loadStaffSensitiveProfile, loadTabletDevices, loadWorkforce, manageManagementAccount, markOperationalAlertRead, openFinanceDocument, previewTabletLeaveRequest, recordQrAttendance, reviewLeaveRequest, reviewWorkSchedule, revokeTabletDevice, rotateAttendanceQrSession, runMonthEndOperations, saveCostCenter, saveCustomTossPlaceCredentials, saveOrganizationSettings, savePayrollContract, savePayrollDraft, saveStaffCategory, saveStaffOrder, saveStaffSensitiveProfile, saveTossPlaceConnection, saveWorkSchedule, saveWorkSchedulesBulk, sendSettlementEmail, signIn, signOut, signUp, startAttendanceQrSession, stopAttendanceQrSession, supabase, syncOrganizationSales, tabletAttendance, tabletLeaveRequest, updateCorporateCard, updateFeedbackItem, updateStaffPhone, updateStaffProfile, uploadFinanceDocument, uploadReceiptToGoogleDrive, uploadStaffAvatar } from './lib/supabase';
 
 const KOREAN_WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 const currentKoreanDateKey = () => {
@@ -478,10 +479,21 @@ function Dashboard({ employees, leaveRequests, schedules, setModal, onOpenLeave,
   </>;
 }
 
-function Attendance({ employees, checkedIn, setCheckedIn, onSelect, canRecordOwnAttendance = false }) {
+function AttendanceQrDisplay({ organizationId, organizationName, onClose }) {
+  const [payload,setPayload]=useState(null);const [image,setImage]=useState('');const [error,setError]=useState('');const sessionRef=useRef(null);
+  const renderPayload=async next=>{sessionRef.current=next.sessionId;setPayload(next);const mobileBase=process.env.NEXT_PUBLIC_MOBILE_APP_URL||'https://timefit-mobile.vercel.app/';const url=new URL(mobileBase);url.searchParams.set('qr',next.token);url.hash='attendance';setImage(await QRCode.toDataURL(url.toString(),{width:420,margin:2,errorCorrectionLevel:'M'}));};
+  useEffect(()=>{let active=true;let timer;const begin=async()=>{try{const next=await startAttendanceQrSession(organizationId);if(!active)return;await renderPayload(next);timer=window.setInterval(async()=>{try{const rotated=await rotateAttendanceQrSession(sessionRef.current);if(active)await renderPayload(rotated);}catch(nextError){if(active)setError(nextError.message||'QR을 갱신하지 못했습니다.');}},60000);}catch(nextError){if(active)setError(nextError.message||'QR 표시를 시작하지 못했습니다.');}};void begin();return()=>{active=false;if(timer)window.clearInterval(timer);if(sessionRef.current)void stopAttendanceQrSession(sessionRef.current).catch(()=>{});};},[organizationId]);
+  const close=async()=>{if(sessionRef.current)await stopAttendanceQrSession(sessionRef.current).catch(()=>{});sessionRef.current=null;onClose();};
+  const rotate=async()=>{setError('');try{await renderPayload(await rotateAttendanceQrSession(sessionRef.current));}catch(nextError){setError(nextError.message||'QR을 갱신하지 못했습니다.');}};
+  return <section className="attendance-qr-panel" aria-live="polite"><header><div><span>ATT-01 · 업장 QR</span><h2>{organizationName||'현재 업장'} 출퇴근 QR</h2></div><button type="button" onClick={()=>void close()} aria-label="QR 표시 닫기">×</button></header>{payload?<div className="attendance-qr-body"><div className="attendance-qr-image">{image?<img src={image} alt={`${organizationName||'현재 업장'} 출퇴근 QR`}/>:<span className="attendance-qr-loading">QR 생성 중…</span>}</div><div className="attendance-qr-copy"><strong>직원이 개인 휴대전화로 스캔합니다</strong><p>로그인한 직원이 이 업장 소속인지 서버에서 확인합니다. 첫 스캔은 출근, 열린 근무가 있으면 퇴근으로 자동 처리됩니다.</p><code>{payload.token.slice(0,12)}… · 60초마다 자동 갱신</code><div className="attendance-qr-actions"><button className="outline" type="button" onClick={()=>void rotate()}>지금 새 QR 발급</button><button className="outline" type="button" onClick={()=>void close()}>표시 종료</button></div></div></div>:<p className="attendance-qr-loading">업장 전용 QR을 준비하고 있어요.</p>}{error&&<p className="attendance-qr-error" role="alert">{error}</p>}</section>;
+}
+
+function Attendance({ employees, checkedIn, setCheckedIn, onSelect, canRecordOwnAttendance = false, organizationId, organizationName, canManageQr = true }) {
   const currentDateKey = useCurrentKoreanDateKey();
+  const attendanceOrganizationId = organizationId || employees[0]?.organizationId;
   const [selectedDate, setSelectedDate] = useState(currentDateKey);
   const [filter, setFilter] = useState('전체');
+  const [showQr,setShowQr]=useState(false);
   useEffect(() => { setSelectedDate(current => current || currentDateKey); }, [currentDateKey]);
 
   const moveDate = offset => {
@@ -513,7 +525,8 @@ function Attendance({ employees, checkedIn, setCheckedIn, onSelect, canRecordOwn
   const statusType = status => status === '근무 중' || status === '퇴근 완료' ? 'green' : status === '지각' ? 'orange' : 'gray';
 
   return <>
-    <div className="page-title attendance-page-title"><div><p>{formatKoreanDate(selectedDate)} 기준</p><h1>출퇴근 관리</h1><span>스케줄과 실제 출퇴근 기록을 날짜별로 비교합니다.</span></div>{canRecordOwnAttendance && <button className={checkedIn ? 'checkin complete' : 'checkin'} onClick={() => setCheckedIn(!checkedIn)}>{checkedIn ? '✓ 출근 완료 · 퇴근하기' : '◷ 내 출근 기록하기'}</button>}</div>
+    <div className="page-title attendance-page-title"><div><p>{formatKoreanDate(selectedDate)} 기준</p><h1>출퇴근 관리</h1><span>스케줄과 실제 출퇴근 기록을 날짜별로 비교합니다.</span></div>{canManageQr&&attendanceOrganizationId?<button className="checkin attendance-qr-open" onClick={()=>setShowQr(value=>!value)}>{showQr?'QR 표시 닫기':'▣ 업장 QR 표시'}</button>:canRecordOwnAttendance&&<button className={checkedIn ? 'checkin complete' : 'checkin'} onClick={() => setCheckedIn(!checkedIn)}>{checkedIn ? '✓ 출근 완료 · 퇴근하기' : '◷ 내 출근 기록하기'}</button>}</div>
+    {showQr&&attendanceOrganizationId&&<AttendanceQrDisplay organizationId={attendanceOrganizationId} organizationName={organizationName} onClose={()=>setShowQr(false)}/>}
     <section className="attendance-kpis" aria-label="선택 날짜 출퇴근 요약">
       <article><span>출근 기록</span><strong>{rows.filter(row => row.attendance?.checked_in_at).length}<small>명</small></strong></article>
       <article><span>퇴근 완료</span><strong>{count('퇴근 완료') + rows.filter(row => row.status === '지각' && row.attendance?.checked_out_at).length}<small>명</small></strong></article>
@@ -1235,22 +1248,26 @@ function EmployeeHome({ setActive, checkedIn, setCheckedIn, profile, employee, s
 function MySchedule({ employee, schedules, profile }) { const rows = employee ? employeeScheduleRows(schedules, employee.id) : []; const monthKey = todayKey.slice(0, 7); const days = monthDaysFor(monthKey); const byDate = Object.fromEntries(rows.map(row => [row.date, row])); return <><div className="page-title"><div><p>{profile?.display_name || '내'}님의 일정</p><h1>내 스케줄</h1></div><button className="outline">{monthLabelFor(monthKey)}</button></div><section className="card my-calendar"><div className="calendar-days">{KOREAN_WEEKDAYS.map(day => <b key={day}>{day}</b>)}{days.map(day => { const shift = byDate[day.id]; return <div className={!day.inMonth ? 'muted' : shift?.time === '휴무' ? 'day-off' : shift ? 'has-shift' : ''} key={day.id}><b>{day.day}</b>{shift && <span>{shift.time === '휴무' ? '휴무' : shift.time.replaceAll(':00', '')}</span>}</div>; })}</div></section><section className="card full-card"><div className="card-title"><div><h2>등록된 근무 일정</h2><p>실제 등록된 일정만 표시됩니다.</p></div></div>{rows.length ? rows.map(row => <div className="my-schedule-row" key={row.date}><b>{formatKoreanDate(row.date)}</b><strong>{row.time}</strong><span>{row.shiftName}</span></div>) : <p className="empty-state">등록된 근무 일정이 없어요.</p>}</section></> }
 
 function QrAttendance({ checkedIn, setCheckedIn }) {
-  const videoRef = useRef(null); const streamRef = useRef(null); const [isOpen, setOpen] = useState(false); const [cameraError, setCameraError] = useState(''); const [status, setStatus] = useState('매장 QR 코드를 카메라에 비춰 주세요.');
+  const videoRef = useRef(null); const streamRef = useRef(null); const requestKeyRef = useRef(null); const [isOpen, setOpen] = useState(false); const [cameraError, setCameraError] = useState(''); const [status, setStatus] = useState('매장 QR 코드를 카메라에 비춰 주세요.');
   const stopCamera = () => { streamRef.current?.getTracks().forEach(track => track.stop()); streamRef.current = null; };
   useEffect(() => () => stopCamera(), []);
-  const completeAttendance = async (token, source = 'QR') => {
-    const action = checkedIn ? 'check_out' : 'check_in';
+  const completeAttendance = async token => {
     try {
-      if (supabase && !token) throw new Error('실제 출퇴근은 유효한 매장 QR 코드가 필요합니다.');
-      if (supabase && token) await recordQrAttendance({ token, action });
-      setCheckedIn(!checkedIn); setStatus(`${source} 인증 완료 · ${checkedIn ? '퇴근' : '출근'} 처리됐어요.`);
+      if (!token) throw new Error('실제 출퇴근은 유효한 업장 QR 코드가 필요합니다.');
+      requestKeyRef.current ||= crypto.randomUUID();
+      const response = await recordQrAttendance({ token, requestKey: requestKeyRef.current });
+      const result = response?.data || response;
+      if (result?.action === 'review_required') throw new Error('이전 출근 기록을 관리자가 확인해야 합니다.');
+      requestKeyRef.current = null;
+      const isCheckedIn = result?.nextAction === 'check_out';
+      setCheckedIn(isCheckedIn);
+      setStatus(`QR 인증 완료 · ${result?.action === 'check_out' ? '퇴근' : '출근'} 처리됐어요.`);
     } catch (error) {
       setCameraError(error.message || '출퇴근 기록을 저장하지 못했습니다. 네트워크와 QR 유효 시간을 확인해 주세요.');
     }
   };
   const startCamera = async () => { setCameraError(''); setOpen(true); try { const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false }); streamRef.current = stream; if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play(); } if ('BarcodeDetector' in window) { const detector = new window.BarcodeDetector({ formats: ['qr_code'] }); const scan = async () => { if (!videoRef.current || !streamRef.current) return; try { const result = await detector.detect(videoRef.current); if (result.length) { stopCamera(); setOpen(false); await completeAttendance(result[0].rawValue); return; } } catch (_) {} window.setTimeout(scan, 450); }; scan(); } else setStatus('카메라 촬영 후 하단 버튼으로 인증을 완료해 주세요.'); } catch (_) { setCameraError('카메라를 사용할 수 없습니다. 브라우저 권한을 허용한 뒤 다시 시도해 주세요.'); } };
-  const completeByPhoto = async () => { stopCamera(); setOpen(false); await completeAttendance(null, '사진'); };
-  return <section className="card qr-card"><div className="qr-icon">⌘</div><div><p>QR 출퇴근</p><h2>{checkedIn ? '퇴근할 시간이에요' : '매장 QR로 출근하기'}</h2><span>{status}</span></div><button className="cta" onClick={startCamera}>{checkedIn ? 'QR 퇴근' : 'QR 출근'}</button>{isOpen && <div className="scanner"><video ref={videoRef} muted playsInline/><div className="scan-frame"/><p>{cameraError || 'QR 코드를 찾는 중…'}</p><div><button className="outline" onClick={() => {stopCamera();setOpen(false)}}>닫기</button><button className="cta" onClick={completeByPhoto}>사진 인증 완료</button></div></div>}</section>;
+  return <section className="card qr-card"><div className="qr-icon">⌘</div><div><p>QR 출퇴근</p><h2>{checkedIn ? '퇴근할 시간이에요' : '업장 QR로 출근하기'}</h2><span>{status}</span></div><button className="cta" onClick={startCamera}>QR 스캔</button>{isOpen && <div className="scanner"><video ref={videoRef} muted playsInline/><div className="scan-frame"/><p>{cameraError || 'QR 코드를 찾는 중…'}</p><div><button className="outline" onClick={() => {stopCamera();setOpen(false)}}>닫기</button></div></div>}</section>;
 }
 
 function MyAttendance({ checkedIn, setCheckedIn, employee }) { const history = employee?.attendanceHistory || []; const totalMinutes = history.filter(row => row.work_date >= weekDaysFor(todayKey)[0].id).reduce((sum, row) => sum + attendanceMinutes(row), 0); return <><div className="page-title"><div><p>{today}</p><h1>출퇴근</h1></div></div><QrAttendance checkedIn={checkedIn} setCheckedIn={setCheckedIn}/><section className="card full-card"><div className="card-title"><div><h2>이번 주 근무 기록</h2><p>내 실제 근무시간</p></div><strong className="total-hours">{formatHours(totalMinutes)}</strong></div>{history.length ? history.slice(0, 7).map(record => <div className="attendance-history" key={record.id}><b>{formatKoreanDate(record.work_date)}</b><span>출근 {record.checked_in_at ? new Intl.DateTimeFormat('ko-KR',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Asia/Seoul'}).format(new Date(record.checked_in_at)) : '-'}</span><Chip type={record.checked_in_at && !record.checked_out_at ? 'green' : 'gray'}>{record.checked_in_at && !record.checked_out_at ? '근무 중' : record.checked_out_at ? '퇴근 완료' : '미출근'}</Chip><strong>{formatHours(attendanceMinutes(record))}</strong></div>) : <p className="empty-state">출퇴근 기록이 없어요.</p>}</section></> }
