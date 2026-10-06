@@ -51,6 +51,11 @@ export async function stopAttendanceQrSession(sessionId) {
   if (error) throw error;
 }
 
+export async function getStaticAttendanceQr(organizationId, regenerate = false) {
+  const { data, error } = await requireClient().rpc('timefit_user_static_attendance_qr', { p_organization_id: organizationId, p_regenerate: regenerate });
+  if (error) throw error; return data;
+}
+
 export async function getAuthContext() {
   if (!supabase) return { session: null, profile: null, membership: null, invitation: null };
   let { data: { session } } = await requestWithTimeout(supabase.auth.getSession(), 'auth_session');
