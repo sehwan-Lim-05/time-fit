@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { allowedPushPath, retryDelaySeconds } from '../server/api/push-notification-worker.js';
 
-const sql = readFileSync(new URL('../supabase/migrations/20261005000300_alt01_notification_foundation.sql', import.meta.url), 'utf8');
+const sql = readFileSync(new URL('../supabase/migrations/20261006000100_alt01_notification_foundation.sql', import.meta.url), 'utf8');
 
 test('in-app notification is durable before push fanout', () => {
   assert.match(sql, /timefit_user_notifications/);

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const sql = readFileSync(new URL('../supabase/migrations/20261006000100_alt02_attendance_missing_alerts.sql', import.meta.url), 'utf8');
+const sql = readFileSync(new URL('../supabase/migrations/20261006000200_alt02_attendance_missing_alerts.sql', import.meta.url), 'utf8');
 
 test('ALT-02 scans only published and approved work schedules', () => {
   assert.match(sql, /schedule\.status='published' and schedule\.approval_status='approved'/);

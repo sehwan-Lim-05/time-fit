@@ -29,7 +29,7 @@ test('ALT-03 projects privacy-safe in-app notifications and deep links', () => {
 });
 
 test('ALT-01 remains the schedule notification source', async () => {
-  const foundation = await readFile(new URL('../supabase/migrations/20261005000300_alt01_notification_foundation.sql', import.meta.url), 'utf8');
+  const foundation = await readFile(new URL('../supabase/migrations/20261006000100_alt01_notification_foundation.sql', import.meta.url), 'utf8');
   assert.match(foundation, /schedule_approved/);
   assert.match(foundation, /schedule_changed/);
   assert.match(foundation, /\/#schedule/);
