@@ -261,8 +261,10 @@ function ManagementAccountSettings({ organizationId, employees, isOwner }) {
   const categories=[...new Map(employees.filter(e=>e.categoryId).map(e=>[e.categoryId,{id:e.categoryId,name:e.team}])).values()];
   const permissionOptions = [
     ['dashboard.view','홈','사업장 현황'], ['attendance.view','출퇴근 조회','근태 기록'],
-    ['schedule.view','스케줄 조회','일정 열람'], ['schedule.manage','스케줄 작성·수정','승인 요청'],
-    ['leave.view','휴가 조회','연차 현황'], ['payroll.view','급여·인건비 조회','민감 정보'],
+    ['attendance.manage','출퇴근 관리','출퇴근 기록 직접 수정'], ['attendance.review_correction','출퇴근 정정 승인','직원 정정 요청 승인·반려'],
+    ['schedule.view','스케줄 조회','일정 열람'], ['schedule.manage','스케줄 작성·수정','일정 등록·변경'],
+    ['schedule.approve','스케줄 승인','제출 일정 승인·반려'], ['leave.view','휴가 조회','연차 현황'],
+    ['leave.review','휴가 승인','휴가 요청 승인·반려'], ['payroll.view','급여·인건비 조회','민감 정보'],
     ['employee.view','직원 기본정보 조회','프로필 열람'], ['employee.manage','직원 등록·관리','담당 구분 내 직접 등록'],
     ['sales.view','매출 조회','주간 매출·메뉴 분석'], ['sales.sync','매출 동기화','POS 내역 수집 실행'],
     ['finance.view','지출·증빙 조회','지출 원장·결산 열람'], ['expense.manage','지출·증빙 관리','지출 원장 수정'],

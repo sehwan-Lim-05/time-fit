@@ -2,7 +2,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.49.4'
 
 const headers = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Content-Type': 'application/json' }
 const permissionCodes = new Set([
-  'dashboard.view','attendance.view','schedule.view','schedule.manage','leave.view','leave.review','payroll.view','employee.view','employee.manage',
+  'dashboard.view','attendance.view','attendance.manage','attendance.review_correction','schedule.view','schedule.manage','schedule.approve','leave.view','leave.review','payroll.view','employee.view','employee.manage',
   'sales.view','sales.sync','settings.manage','finance.view','expense.manage','expense.receipt.review','expense.card.manage','expense.closeout.manage','expense.export',
 ])
 
@@ -36,10 +36,15 @@ Deno.serve(async request => {
     const roleCode = String(body.roleCode || '')
     const status = String(body.status || '')
     const requestedPermissions = [...new Set((Array.isArray(body.permissions) ? body.permissions : []).map(String))]
-    const permissions = [...new Set([
-      ...requestedPermissions,
-      ...(requestedPermissions.includes('employee.manage') ? ['employee.view'] : []),
-    ])]
+    const dependencies: Record<string, string> = {
+      'attendance.manage': 'attendance.view', 'attendance.review_correction': 'attendance.view',
+      'schedule.manage': 'schedule.view', 'schedule.approve': 'schedule.view',
+      'leave.review': 'leave.view', 'employee.manage': 'employee.view',
+      'sales.sync': 'sales.view', 'expense.manage': 'finance.view',
+      'expense.receipt.review': 'finance.view', 'expense.card.manage': 'finance.view',
+      'expense.closeout.manage': 'finance.view', 'expense.export': 'finance.view',
+    }
+    const permissions = [...new Set([...requestedPermissions, ...requestedPermissions.map(code => dependencies[code]).filter(Boolean)])]
     const categoryIds = [...new Set((Array.isArray(body.categoryIds) ? body.categoryIds : []).map(String))]
     const costCenterIds = [...new Set((Array.isArray(body.costCenterIds) ? body.costCenterIds : []).map(String))]
     if (!['manager','executive_chef'].includes(roleCode) || !['active','suspended'].includes(status) || permissions.some(code => !permissionCodes.has(code))) throw new Error('invalid_management_account_input')

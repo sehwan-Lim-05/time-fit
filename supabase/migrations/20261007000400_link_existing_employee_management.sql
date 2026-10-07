@@ -21,7 +21,7 @@ end $$;
 alter table public.timefit_user_management_permissions
   add constraint timefit_user_management_permissions_code_check
   check (permission_code in (
-    'dashboard.view','attendance.view','attendance.manage','schedule.view','schedule.manage','leave.view','leave.review',
+    'dashboard.view','attendance.view','attendance.manage','attendance.review_correction','schedule.view','schedule.manage','schedule.approve','leave.view','leave.review',
     'payroll.view','employee.view','employee.manage','sales.view','sales.sync','settings.manage','finance.view','expense.manage',
     'expense.receipt.review','expense.card.manage','expense.closeout.manage','expense.export'
   ));

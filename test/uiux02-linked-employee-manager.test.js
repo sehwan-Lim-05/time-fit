@@ -42,3 +42,22 @@ test('UIUX-02 removes suspended management access from both web and app context'
   assert.match(migration, /management\.status = 'active'/);
   assert.match(migration, /management_permissions/);
 });
+
+test('UIUX-02 keeps one canonical approval and attendance permission catalog', () => {
+  for (const code of ['attendance.manage', 'attendance.review_correction', 'schedule.approve']) {
+    assert.match(createAccount, new RegExp(code.replace('.', '\\.')));
+    assert.match(manageAccount, new RegExp(code.replace('.', '\\.')));
+    assert.match(migration, new RegExp(code.replace('.', '\\.')));
+    assert.match(ui, new RegExp(code.replace('.', '\\.')));
+  }
+});
+
+test('UIUX-02 expands mutating permissions with their required view permission', () => {
+  for (const source of [createAccount, manageAccount]) {
+    assert.match(source, /'attendance\.manage': 'attendance\.view'/);
+    assert.match(source, /'schedule\.approve': 'schedule\.view'/);
+    assert.match(source, /'leave\.review': 'leave\.view'/);
+    assert.match(source, /'sales\.sync': 'sales\.view'/);
+    assert.match(source, /'expense\.export': 'finance\.view'/);
+  }
+});
