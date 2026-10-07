@@ -9072,6 +9072,16 @@ function App() {
       }
     };
     loadAuth();
+    let lastContextRefreshAt = 0;
+    const refreshManagementContext = () => {
+      if (document.visibilityState === "hidden") return;
+      const now = Date.now();
+      if (now - lastContextRefreshAt < 3000) return;
+      lastContextRefreshAt = now;
+      loadAuth();
+    };
+    window.addEventListener("focus", refreshManagementContext);
+    document.addEventListener("visibilitychange", refreshManagementContext);
     const { data: listener } = supabase.auth.onAuthStateChange((event) => {
       // Token refreshes are handled by Supabase internally. Resolving the
       // application context for each one made unnecessary Edge Function calls.
@@ -9108,6 +9118,11 @@ function App() {
     return () => {
       activeEffect = false;
       window.clearTimeout(authStallTimer);
+      window.removeEventListener("focus", refreshManagementContext);
+      document.removeEventListener(
+        "visibilitychange",
+        refreshManagementContext,
+      );
       listener.subscription.unsubscribe();
     };
   }, []);

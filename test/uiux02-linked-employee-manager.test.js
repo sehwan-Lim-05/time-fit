@@ -97,3 +97,10 @@ test('UIUX-03 separates employee compensation from payroll aggregate access', ()
   assert.match(ui, /canViewCompensation/);
   assert.match(ui, /canManageCompensation/);
 });
+
+test('UIUX-03 refreshes delegated access when the web app becomes active again', () => {
+  assert.match(ui, /refreshManagementContext/);
+  assert.match(ui, /window\.addEventListener\("focus", refreshManagementContext\)/);
+  assert.match(ui, /document\.addEventListener\("visibilitychange", refreshManagementContext\)/);
+  assert.match(ui, /setMode\(accountRole === "manager" \? "manager" : "employee"\)/);
+});
