@@ -574,6 +574,10 @@ export async function processReceiptDocument({ organizationId, documentId }) {
   const payload = await cardConnectionRequest('receipt-process', { method: 'POST', body: { organizationId, documentId, action: 'enqueue' } });
   return payload;
 }
+export async function analyzeReceiptWithTimefitAx({ organizationId, documentId, imageUrl, imageUrls, requestId }) {
+  const urls = Array.isArray(imageUrls) && imageUrls.length ? imageUrls : imageUrl ? [imageUrl] : [];
+  return cardConnectionRequest('receipt-ax', { method: 'POST', body: { organizationId, documentId, imageUrls: urls, ...(requestId ? { requestId } : {}) } });
+}
 export async function loadReceiptSubmission({ organizationId, documentId }) {
   return cardConnectionRequest('receipt-process', { query: { organizationId, documentId } });
 }
