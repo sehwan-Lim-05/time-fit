@@ -39,4 +39,6 @@ test('UIUX-02 owner UI defaults to linking an existing employee', () => {
 
 test('UIUX-02 removes suspended management access from both web and app context', () => {
   assert.match(userContext, /eq\('status', 'active'\)/);
+  assert.match(migration, /management\.status = 'active'/);
+  assert.match(migration, /management_permissions/);
 });
