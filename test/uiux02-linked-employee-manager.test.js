@@ -8,6 +8,7 @@ const migration = readFileSync(new URL('../supabase/migrations/20261007000400_li
 const compensationMigration = readFileSync(new URL('../supabase/migrations/20261007000500_split_employee_compensation_permissions.sql', import.meta.url), 'utf8');
 const ui = readFileSync(new URL('../src/main.jsx', import.meta.url), 'utf8');
 const userContext = readFileSync(new URL('../supabase/functions/get-user-context/index.ts', import.meta.url), 'utf8');
+const access = readFileSync(new URL('../src/lib/managementAccess.js', import.meta.url), 'utf8');
 
 test('UIUX-02 links management access to an existing employee identity', () => {
   assert.match(createAccount, /accountMode === 'link_existing'/);
@@ -103,4 +104,13 @@ test('UIUX-03 refreshes delegated access when the web app becomes active again',
   assert.match(ui, /window\.addEventListener\("focus", refreshManagementContext\)/);
   assert.match(ui, /document\.addEventListener\("visibilitychange", refreshManagementContext\)/);
   assert.match(ui, /setMode\(accountRole === "manager" \? "manager" : "employee"\)/);
+});
+
+test('UIUX-03 revalidates critical writes and safely handles revoked access', () => {
+  for (const permission of ['employee.manage', 'schedule.manage', 'schedule.approve', 'leave.review']) {
+    assert.match(ui, new RegExp(`revalidateManagementPermission\\(\\s*["']${permission.replace('.', '\\.')}["']`));
+  }
+  assert.match(ui, /setMode\("employee"\)/);
+  assert.match(ui, /setActive\("employeeHome"\)/);
+  assert.match(access, /403\|permission\|denied\|forbidden\|row-level security\|42501/i);
 });

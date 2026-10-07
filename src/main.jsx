@@ -12,6 +12,7 @@ import { OperationsHome, WeeklyFeedback, AttendanceIssueList, CardReviewList } f
 import { attendanceIssues, payrollAttendanceRange, staffTodayStatus } from '../shared/operations.js';
 import { invalidateViewCache, readViewCache, writeViewCache } from './lib/viewCache';
 import { groupStaffByType } from './lib/staffGrouping';
+import { hasCurrentManagementPermission, managementActionErrorMessage, MANAGEMENT_ACCESS_CHANGED_MESSAGE } from './lib/managementAccess';
 import CardConnectionWizard from './features/finance/CardConnectionWizard';
 import FinanceReportDashboard from './features/finance/FinanceReportDashboard';
 import ExpenseExceptionInbox from './features/finance/ExpenseExceptionInbox';
@@ -9345,6 +9346,17 @@ function App() {
     );
     return refreshWorkforce(authContext, { background: true });
   };
+  const revalidateManagementPermission = async (permission) => {
+    if (!supabase) return authContext;
+    const nextContext = await getAuthContext();
+    setAuthContext(nextContext);
+    if (hasCurrentManagementPermission(nextContext, permission))
+      return nextContext;
+    setMode("employee");
+    setActive("employeeHome");
+    setModal(null);
+    throw new Error(MANAGEMENT_ACCESS_CHANGED_MESSAGE);
+  };
   const reorderEmployees = async (from, to) => {
     if (to < 0 || to >= employees.length) return;
     const previous = employees;
@@ -9353,10 +9365,11 @@ function App() {
     next.splice(to, 0, moved);
     setEmployees(next);
     try {
+      await revalidateManagementPermission("employee.manage");
       await saveStaffOrder(next.map((employee) => employee.id));
     } catch (error) {
       setEmployees(previous);
-      setToast(error.message || "직원 순서를 저장하지 못했습니다.");
+      setToast(managementActionErrorMessage(error, "직원 순서를 저장하지 못했습니다."));
     }
   };
   useEffect(() => {
@@ -9387,6 +9400,7 @@ function App() {
   };
   const reviewSchedule = async (scheduleId, decision) => {
     try {
+      await revalidateManagementPermission("schedule.approve");
       await reviewWorkSchedule({ scheduleId, decision });
       await refreshWorkforceInPlace();
       setToast(
@@ -9395,11 +9409,12 @@ function App() {
           : "스케줄을 반려했어요.",
       );
     } catch (error) {
-      setToast(error.message || "스케줄 승인을 처리하지 못했습니다.");
+      setToast(managementActionErrorMessage(error, "스케줄 승인을 처리하지 못했습니다."));
     }
   };
   reviewSchedule.all = async (scheduleIds) => {
     try {
+      await revalidateManagementPermission("schedule.approve");
       await Promise.all(
         scheduleIds.map((scheduleId) =>
           reviewWorkSchedule({ scheduleId, decision: "approved" }),
@@ -9411,10 +9426,7 @@ function App() {
       );
     } catch (error) {
       await refreshWorkforceInPlace();
-      setToast(
-        error.message ||
-          "일부 스케줄의 전체 승인을 처리하지 못했습니다. 목록을 확인해 주세요.",
-      );
+      setToast(managementActionErrorMessage(error, "일부 스케줄의 전체 승인을 처리하지 못했습니다. 목록을 확인해 주세요."));
     }
   };
   const canViewPayroll = Boolean(
@@ -9983,12 +9995,13 @@ function App() {
   };
   const reviewLeave = async (status) => {
     try {
-      if (supabase)
+      if (supabase) {
+        await revalidateManagementPermission("leave.review");
         await reviewLeaveRequest({
           id: selectedLeave.id,
           status: status === "승인 완료" ? "approved" : "rejected",
         });
-      else
+      } else
         setLeaveRequests((items) =>
           items.map((item) =>
             item.id === selectedLeave.id ? { ...item, status } : item,
@@ -9998,7 +10011,7 @@ function App() {
       setModal(null);
       setToast(`요청을 ${status === "승인 완료" ? "승인" : "반려"}했어요.`);
     } catch (error) {
-      setToast(error.message || "휴가 요청을 처리하지 못했습니다.");
+      setToast(managementActionErrorMessage(error, "휴가 요청을 처리하지 못했습니다."));
     }
   };
   const saveLeaveRequest = async (e) => {
@@ -10051,10 +10064,11 @@ function App() {
     const name = data.get("employee");
     try {
       if (supabase) {
+        const currentContext = await revalidateManagementPermission("schedule.manage");
         const staff = employees.find((item) => item.name === name);
         if (!staff) throw new Error("직원 정보를 찾을 수 없습니다.");
         await saveWorkSchedule({
-          organizationId: authContext.membership.organization_id,
+          organizationId: currentContext.membership.organization_id,
           staffId: staff.id,
           workDate: data.get("date"),
           startsAt: data.get("startsAt"),
@@ -10077,7 +10091,7 @@ function App() {
       setModal(null);
       setToast(`${name}님의 근무 일정을 저장했어요.`);
     } catch (error) {
-      setToast(error.message || "근무 일정을 저장하지 못했습니다.");
+      setToast(managementActionErrorMessage(error, "근무 일정을 저장하지 못했습니다."));
     }
   };
   const saveScheduleSelection = async ({
@@ -10093,8 +10107,9 @@ function App() {
   }) => {
     try {
       if (supabase) {
+        const currentContext = await revalidateManagementPermission("schedule.manage");
         const result = await saveWorkSchedulesBulk({
-          organizationId: authContext.membership.organization_id,
+          organizationId: currentContext.membership.organization_id,
           staffIds,
           workDates: dates,
           startsAt,
@@ -10137,12 +10152,13 @@ function App() {
         );
       }
     } catch (error) {
-      setToast(error.message || "근무 일정을 저장하지 못했습니다.");
+      setToast(managementActionErrorMessage(error, "근무 일정을 저장하지 못했습니다."));
     }
   };
   const saveMonthlyScheduleChanges = async (changes) => {
     if (!Array.isArray(changes) && changes?.cancellations) {
       if (supabase) {
+        await revalidateManagementPermission("schedule.manage");
         for (const schedule of changes.cancellations)
           await deleteWorkSchedule(schedule.id);
         await refreshWorkforceInPlace();
@@ -10164,9 +10180,10 @@ function App() {
     }
     let count = 0;
     if (supabase) {
+      const currentContext = await revalidateManagementPermission("schedule.manage");
       for (const change of changes) {
         const result = await saveWorkSchedulesBulk({
-          organizationId: authContext.membership.organization_id,
+          organizationId: currentContext.membership.organization_id,
           staffIds: change.staffIds,
           workDates: change.dates,
           startsAt: change.startsAt,
@@ -10191,8 +10208,9 @@ function App() {
   const updateSchedule = async (schedule) => {
     try {
       if (supabase) {
+        const currentContext = await revalidateManagementPermission("schedule.manage");
         await saveWorkSchedule({
-          organizationId: authContext.membership.organization_id,
+          organizationId: currentContext.membership.organization_id,
           staffId: schedule.staffId,
           workDate: schedule.date,
           startsAt: schedule.startsAt,
@@ -10227,12 +10245,13 @@ function App() {
           : `${schedule.name}님의 일정 수정 승인을 요청했어요.`,
       );
     } catch (error) {
-      setToast(error.message || "근무 일정을 수정하지 못했습니다.");
+      setToast(managementActionErrorMessage(error, "근무 일정을 수정하지 못했습니다."));
     }
   };
   const removeSchedule = async (schedule) => {
     try {
       if (supabase) {
+        await revalidateManagementPermission("schedule.manage");
         if (!schedule.id) throw new Error("일정 식별 정보를 찾을 수 없습니다.");
         await deleteWorkSchedule(schedule.id);
         await refreshWorkforce();
@@ -10247,7 +10266,7 @@ function App() {
       setModal(null);
       setToast(`${schedule.name}님의 근무 일정을 취소했어요.`);
     } catch (error) {
-      setToast(error.message || "근무 일정을 취소하지 못했습니다.");
+      setToast(managementActionErrorMessage(error, "근무 일정을 취소하지 못했습니다."));
     }
   };
   const sendInvite = async (e) => {
