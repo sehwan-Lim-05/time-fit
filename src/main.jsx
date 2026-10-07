@@ -252,148 +252,2426 @@ function Settings({ organizationId, organizationName, onSaved }) {
 }
 
 function ManagementAccountSettings({ organizationId, employees, isOwner }) {
-  const [accounts,setAccounts]=useState([]); const [costCenters,setCostCenters]=useState([]); const [busy,setBusy]=useState(false); const [message,setMessage]=useState(''); const [credentials,setCredentials]=useState(null); const [chapter,setChapter]=useState('accounts'); const [editing,setEditing]=useState(null); const [createMode,setCreateMode]=useState('link_existing');
-  const refresh=()=>isOwner&&loadManagementAccounts(organizationId).then(setAccounts).catch(error=>setMessage(error.message||'관리 계정을 불러오지 못했습니다.'));
-  useEffect(()=>{refresh();},[organizationId,isOwner]);
-  useEffect(()=>{if(isOwner)loadCostCenters(organizationId).then(setCostCenters).catch(()=>setCostCenters([]));},[organizationId,isOwner]);
-  if(!isOwner) return null;
-  const submit=async event=>{event.preventDefault();const formElement=event.currentTarget;const form=new FormData(formElement);setBusy(true);try{const result=await createManagementAccount({organizationId,accountMode:createMode,displayName:form.get('displayName'),loginId:form.get('loginId'),temporaryPassword:form.get('temporaryPassword'),roleCode:form.get('roleCode'),staffId:form.get('staffId')||null,categoryIds:form.getAll('categoryIds'),costCenterIds:form.getAll('costCenterIds'),permissions:form.getAll('permissions')});if(createMode==='standalone')setCredentials({loginId:result.loginId,password:form.get('temporaryPassword')});formElement.reset();await refresh();setChapter('accounts');setMessage(createMode==='link_existing'?'기존 직원 계정에 관리자 권한을 연결했어요. 직원 로그인 정보는 변경되지 않습니다.':'관리 계정을 만들었어요. 아이디와 임시 비밀번호를 안전하게 전달해 주세요.');}catch(error){const code=String(error.message||'');setMessage(/already|duplicate/.test(code)?'이미 관리자 권한이 연결된 직원 또는 사용 중인 아이디입니다.':/linked_employee_account_required/.test(code)?'앱 계정이 연결된 직원을 선택해 주세요.':code||'관리 계정을 만들지 못했습니다.');}finally{setBusy(false);}};
-  const categories=[...new Map(employees.filter(e=>e.categoryId).map(e=>[e.categoryId,{id:e.categoryId,name:e.team}])).values()];
-  const permissionOptions = [
-    ['dashboard.view','홈','사업장 현황'], ['attendance.view','출퇴근 조회','근태 기록'],
-    ['attendance.manage','출퇴근 관리','출퇴근 기록 직접 수정'], ['attendance.review_correction','출퇴근 정정 승인','직원 정정 요청 승인·반려'],
-    ['schedule.view','스케줄 조회','일정 열람'], ['schedule.manage','스케줄 작성·수정','일정 등록·변경'],
-    ['schedule.approve','스케줄 승인','제출 일정 승인·반려'], ['leave.view','휴가 조회','연차 현황'],
-    ['leave.review','휴가 승인','휴가 요청 승인·반려'], ['payroll.view','급여·인건비 조회','민감 정보'],
-    ['employee.view','직원 기본정보 조회','프로필 열람'], ['employee.manage','직원 등록·관리','담당 구분 내 직접 등록'],
-    ['sales.view','매출 조회','주간 매출·메뉴 분석'], ['sales.sync','매출 동기화','POS 내역 수집 실행'],
-    ['finance.view','지출·증빙 조회','지출 원장·결산 열람'], ['expense.manage','지출·증빙 관리','지출 원장 수정'],
-    ['expense.receipt.review','영수증 검수','OCR 확인·수정 요청·승인'], ['expense.card.manage','법인카드 관리','카드 연결·동기화'],
-    ['expense.closeout.manage','결산 관리','기간 마감·재오픈'], ['expense.export','지출 내보내기','CSV·증빙 자료 다운로드'],
-    ['settings.manage','운영 설정 관리','근무·부서·영수증 운영 기준'],
+  const [accounts, setAccounts] = useState([]);
+  const [costCenters, setCostCenters] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [credentials, setCredentials] = useState(null);
+  const [chapter, setChapter] = useState("accounts");
+  const [editing, setEditing] = useState(null);
+  const [createMode, setCreateMode] = useState("link_existing");
+  const [createPermissions, setCreatePermissions] = useState([
+    "dashboard.view",
+    "schedule.view",
+    "schedule.manage",
+    "employee.view",
+  ]);
+  const refresh = () =>
+    isOwner &&
+    loadManagementAccounts(organizationId)
+      .then(setAccounts)
+      .catch((error) =>
+        setMessage(error.message || "관리 계정을 불러오지 못했습니다."),
+      );
+  useEffect(() => {
+    refresh();
+  }, [organizationId, isOwner]);
+  useEffect(() => {
+    if (isOwner)
+      loadCostCenters(organizationId)
+        .then(setCostCenters)
+        .catch(() => setCostCenters([]));
+  }, [organizationId, isOwner]);
+  if (!isOwner) return null;
+  const submit = async (event) => {
+    event.preventDefault();
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    setBusy(true);
+    try {
+      const result = await createManagementAccount({
+        organizationId,
+        accountMode: createMode,
+        displayName: form.get("displayName"),
+        loginId: form.get("loginId"),
+        temporaryPassword: form.get("temporaryPassword"),
+        roleCode: form.get("roleCode"),
+        staffId: form.get("staffId") || null,
+        categoryIds: form.getAll("categoryIds"),
+        costCenterIds: form.getAll("costCenterIds"),
+        permissions: createPermissions,
+      });
+      if (createMode === "standalone")
+        setCredentials({
+          loginId: result.loginId,
+          password: form.get("temporaryPassword"),
+        });
+      formElement.reset();
+      setCreatePermissions(permissionPresets.read_only);
+      await refresh();
+      setChapter("accounts");
+      setMessage(
+        createMode === "link_existing"
+          ? "기존 직원 계정에 관리자 권한을 연결했어요. 직원 로그인 정보는 변경되지 않습니다."
+          : "관리 계정을 만들었어요. 아이디와 임시 비밀번호를 안전하게 전달해 주세요.",
+      );
+    } catch (error) {
+      const code = String(error.message || "");
+      setMessage(
+        /already|duplicate/.test(code)
+          ? "이미 관리자 권한이 연결된 직원 또는 사용 중인 아이디입니다."
+          : /linked_employee_account_required/.test(code)
+            ? "앱 계정이 연결된 직원을 선택해 주세요."
+            : code || "관리 계정을 만들지 못했습니다.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+  const categories = [
+    ...new Map(
+      employees
+        .filter((e) => e.categoryId)
+        .map((e) => [e.categoryId, { id: e.categoryId, name: e.team }]),
+    ).values(),
   ];
-  const permissionName = Object.fromEntries(permissionOptions.map(([value,label])=>[value,label]));
-  const employeeById = Object.fromEntries(employees.map(employee=>[employee.id,employee]));
-  const openEditor=account=>setEditing({account,roleCode:account.role_code,staffId:account.staff_id||'',status:account.status,permissions:(account.timefit_user_management_permissions||[]).filter(item=>item.allowed!==false).map(item=>item.permission_code),categoryIds:(account.timefit_user_management_scopes||[]).map(item=>item.category_id),costCenterIds:(account.timefit_user_management_cost_center_scopes||[]).map(item=>item.cost_center_id)});
-  const toggleEditorValue=(key,value)=>setEditing(current=>({...current,[key]:current[key].includes(value)?current[key].filter(item=>item!==value):[...current[key],value]}));
-  const saveAccount=async()=>{setBusy(true);try{await manageManagementAccount({action:'update',organizationId,accountId:editing.account.id,roleCode:editing.roleCode,staffId:editing.staffId||null,status:editing.status,permissions:editing.permissions,categoryIds:editing.categoryIds,costCenterIds:editing.costCenterIds});setEditing(null);await refresh();setMessage('관리자 계정 설정을 저장했어요.');}catch(error){setMessage(error.message||'관리자 계정을 수정하지 못했습니다.');}finally{setBusy(false);}};
-  const removeAccount=async account=>{const linked=account.account_origin==='linked_employee';if(!window.confirm(linked?`${account.login_id}님의 관리자 권한을 회수할까요?\n직원 로그인과 기존 근무 데이터는 그대로 유지됩니다.`:`${account.login_id} 독립 관리자 계정을 삭제할까요?\n이 계정은 더 이상 로그인할 수 없습니다.`))return;setBusy(true);try{await manageManagementAccount({action:'delete',organizationId,accountId:account.id});if(editing?.account.id===account.id)setEditing(null);await refresh();setMessage(linked?'관리자 권한을 회수했어요. 직원 계정과 근무 데이터는 유지됩니다.':'독립 관리자 계정을 삭제했어요.');}catch(error){setMessage(error.message||'관리자 권한을 회수하지 못했습니다.');}finally{setBusy(false);}};
-  return <section className="card settings-card management-account-settings">
-    <section className="management-account-heading"><div><span className="settings-icon">♙</span><div><h2>권한형 관리자 계정</h2><p>로그인 아이디를 기준으로 담당 범위와 허용 기능을 관리합니다.</p></div></div><span className="management-count">활성 관리자 {accounts.filter(account=>account.status==='active').length}명</span></section>
-    <nav className="management-chapters" aria-label="관리자 계정 관리"><button type="button" className={chapter==='accounts'?'active':''} onClick={()=>setChapter('accounts')}><b>연결된 관리자</b><small>확인 · 수정 · 삭제</small><span>{accounts.length}</span></button><button type="button" className={chapter==='create'?'active':''} onClick={()=>setChapter('create')}><b>새 관리자 등록</b><small>아이디 · 권한 발급</small><span>＋</span></button></nav>
-    {chapter==='create'&&<>
-    <form className="settings-form management-account-form" onSubmit={submit}><section className="settings-section">
-      <div className="management-link-mode"><button type="button" className={createMode==='link_existing'?'active':''} onClick={()=>setCreateMode('link_existing')}><b>기존 직원에게 권한 부여</b><small>직원 아이디와 비밀번호를 그대로 사용</small></button><button type="button" className={createMode==='standalone'?'active':''} onClick={()=>setCreateMode('standalone')}><b>독립 관리자 계정 생성</b><small>직원으로 근무하지 않는 관리자</small></button></div>
-      <div className="settings-input-grid management-identity-grid">{createMode==='standalone'&&<><label>표시 이름<input name="displayName" required placeholder="예: 홀 매니저"/></label><label>로그인 아이디<input name="loginId" pattern="[a-zA-Z0-9._-]{4,30}" required placeholder="예: hall.manager"/><small>화면에는 이 아이디가 관리자 식별자로 표시됩니다.</small></label><label>임시 비밀번호<input name="temporaryPassword" type="password" minLength="8" required autoComplete="new-password"/></label></>}<label>역할<select name="roleCode" defaultValue="manager"><option value="manager">매니저</option><option value="executive_chef">총괄셰프</option></select></label><label className="management-staff-link">{createMode==='link_existing'?'권한을 부여할 직원':'연결 직원'}<select name="staffId" defaultValue="" required={createMode==='link_existing'}><option value="">{createMode==='link_existing'?'앱 계정이 연결된 직원 선택':'연결 안 함'}</option>{employees.filter(employee=>createMode==='standalone'||employee.userId).map(e=><option key={e.id} value={e.id}>{e.name} · {e.team}</option>)}</select><small>{createMode==='link_existing'?'같은 계정으로 직원 앱과 관리자 웹을 사용합니다.':'본인 출퇴근 기능이 필요할 때만 연결합니다.'}</small></label></div>
-      <fieldset className="management-permissions"><legend>허용 기능 <small>업무에 필요한 항목만 선택</small></legend><div className="management-option-grid">{permissionOptions.map(([value,label,description])=><label key={value}><input type="checkbox" name="permissions" value={value} defaultChecked={['dashboard.view','schedule.view','schedule.manage','employee.view'].includes(value)}/><span><b>{label}</b><small>{description}</small></span></label>)}</div></fieldset>
-      <fieldset className="management-permissions"><legend>담당 구분 <small>미선택 시 전체 구분</small></legend><div className="management-option-grid category-options">{categories.map(category=><label key={category.id}><input type="checkbox" name="categoryIds" value={category.id}/><span><b>{category.name}</b><small>해당 구분 직원만 담당</small></span></label>)}</div></fieldset>
-      <fieldset className="management-permissions"><legend>지출 담당 부서·섹션 <small>미선택 시 전체 지출</small></legend><div className="management-option-grid category-options">{costCenters.map(center=><label key={center.id}><input type="checkbox" name="costCenterIds" value={center.id}/><span><b>{center.name}</b><small>{center.center_type==='section'?'해당 섹션 지출만 검수':'해당 부서와 하위 섹션 검수'}</small></span></label>)}</div></fieldset>
-      <button className="submit management-create" disabled={busy}>{busy?'저장 중…':createMode==='link_existing'?'관리자 권한 부여':'관리 계정 생성'}</button>
-    </section></form>
-    {credentials&&<div className="issued-credentials"><b>이번에 발급한 로그인 정보</b><code>아이디 {credentials.loginId}</code><code>임시 비밀번호 {credentials.password}</code><small>이 창을 닫으면 비밀번호를 다시 표시하지 않습니다.</small><button className="outline" onClick={()=>setCredentials(null)}>확인</button></div>}
-    </>}
-    {chapter==='accounts'&&<section className="management-account-list"><div className="management-list-title"><div><h3>연결된 관리자 계정</h3><p>아이디별 역할과 권한을 확인하고 변경하거나 회수할 수 있습니다.</p></div></div><div className="management-account-cards">{accounts.length?accounts.map(account=>{const granted=(account.timefit_user_management_permissions||[]).filter(item=>item.allowed!==false).map(item=>permissionName[item.permission_code]).filter(Boolean);const linked=employeeById[account.staff_id];return <article key={account.id} className="management-account-card"><div className="management-account-avatar">{account.login_id.slice(0,2).toUpperCase()}</div><div className="management-account-info"><code>{account.login_id}</code><span>{account.role_code==='executive_chef'?'총괄셰프':'매니저'}{linked?` · ${linked.name} 연결`:' · 직원 연결 없음'} · {account.account_origin==='linked_employee'?'기존 직원 계정':'독립 관리자 계정'}</span><div>{granted.map(label=><small key={label}>{label}</small>)}</div></div><div className="management-account-actions"><Chip type={account.status==='active'?'green':'gray'}>{account.status==='active'?'활성':'중지'}</Chip><button type="button" className="outline" onClick={()=>openEditor(account)}>확인 · 수정</button><button type="button" className="management-delete" onClick={()=>removeAccount(account)} disabled={busy}>{account.account_origin==='linked_employee'?'권한 회수':'계정 삭제'}</button></div></article>}):<p className="empty-state">연결된 관리자 계정이 없습니다.</p>}</div></section>}
-    {editing&&<Modal title="관리자 계정 확인 · 수정" onClose={()=>!busy&&setEditing(null)}><div className="management-editor"><div className="management-editor-id"><small>로그인 아이디</small><code>{editing.account.login_id}</code><span>아이디는 계정 식별을 위해 변경할 수 없습니다.</span></div><div className="form-row"><label>역할<select value={editing.roleCode} onChange={event=>setEditing({...editing,roleCode:event.target.value})}><option value="manager">매니저</option><option value="executive_chef">총괄셰프</option></select></label><label>계정 상태<select value={editing.status} onChange={event=>setEditing({...editing,status:event.target.value})}><option value="active">활성</option><option value="suspended">사용 중지</option></select></label></div><label>연결 직원<select value={editing.staffId} onChange={event=>setEditing({...editing,staffId:event.target.value})}><option value="">연결 안 함</option>{employees.map(employee=><option key={employee.id} value={employee.id}>{employee.name} · {employee.team}</option>)}</select></label><fieldset className="management-permissions"><legend>허용 기능</legend><div className="management-option-grid">{permissionOptions.map(([value,label,description])=><label key={value}><input type="checkbox" checked={editing.permissions.includes(value)} onChange={()=>toggleEditorValue('permissions',value)}/><span><b>{label}</b><small>{description}</small></span></label>)}</div></fieldset><fieldset className="management-permissions"><legend>담당 구분 <small>미선택 시 전체 구분</small></legend><div className="management-option-grid category-options">{categories.map(category=><label key={category.id}><input type="checkbox" checked={editing.categoryIds.includes(category.id)} onChange={()=>toggleEditorValue('categoryIds',category.id)}/><span><b>{category.name}</b><small>해당 구분 직원만 담당</small></span></label>)}</div></fieldset><fieldset className="management-permissions"><legend>지출 담당 부서·섹션 <small>미선택 시 전체 지출</small></legend><div className="management-option-grid category-options">{costCenters.map(center=><label key={center.id}><input type="checkbox" checked={editing.costCenterIds.includes(center.id)} onChange={()=>toggleEditorValue('costCenterIds',center.id)}/><span><b>{center.name}</b><small>{center.center_type==='section'?'해당 섹션 지출만 검수':'해당 부서와 하위 섹션 검수'}</small></span></label>)}</div></fieldset><div className="management-editor-actions"><button type="button" className="management-delete" onClick={()=>removeAccount(editing.account)} disabled={busy}>계정 삭제</button><button type="button" className="submit" onClick={saveAccount} disabled={busy}>{busy?'저장 중…':'변경사항 저장'}</button></div></div></Modal>}
-    {message&&<NoticeModal message={message} tone={/못|이미/.test(message)?'error':'success'} onClose={()=>setMessage('')}/>}</section>;
+  const permissionOptions = [
+    ["dashboard.view", "홈", "사업장 현황"],
+    ["attendance.view", "출퇴근 조회", "근태 기록"],
+    ["attendance.manage", "출퇴근 관리", "출퇴근 기록 직접 수정"],
+    [
+      "attendance.review_correction",
+      "출퇴근 정정 승인",
+      "직원 정정 요청 승인·반려",
+    ],
+    ["schedule.view", "스케줄 조회", "일정 열람"],
+    ["schedule.manage", "스케줄 작성·수정", "일정 등록·변경"],
+    ["schedule.approve", "스케줄 승인", "제출 일정 승인·반려"],
+    ["leave.view", "휴가 조회", "연차 현황"],
+    ["leave.review", "휴가 승인", "휴가 요청 승인·반려"],
+    ["payroll.view", "급여·인건비 조회", "민감 정보"],
+    ["employee.view", "직원 기본정보 조회", "프로필 열람"],
+    ["employee.manage", "직원 등록·관리", "담당 구분 내 직접 등록"],
+    ["sales.view", "매출 조회", "주간 매출·메뉴 분석"],
+    ["sales.sync", "매출 동기화", "POS 내역 수집 실행"],
+    ["finance.view", "지출·증빙 조회", "지출 원장·결산 열람"],
+    ["expense.manage", "지출·증빙 관리", "지출 원장 수정"],
+    ["expense.receipt.review", "영수증 검수", "OCR 확인·수정 요청·승인"],
+    ["expense.card.manage", "법인카드 관리", "카드 연결·동기화"],
+    ["expense.closeout.manage", "결산 관리", "기간 마감·재오픈"],
+    ["expense.export", "지출 내보내기", "CSV·증빙 자료 다운로드"],
+    ["settings.manage", "운영 설정 관리", "근무·부서·영수증 운영 기준"],
+  ];
+  const permissionName = Object.fromEntries(
+    permissionOptions.map(([value, label]) => [value, label]),
+  );
+  const permissionDependencies = {
+    "attendance.manage": "attendance.view",
+    "attendance.review_correction": "attendance.view",
+    "schedule.manage": "schedule.view",
+    "schedule.approve": "schedule.view",
+    "leave.review": "leave.view",
+    "employee.manage": "employee.view",
+    "sales.sync": "sales.view",
+    "expense.manage": "finance.view",
+    "expense.receipt.review": "finance.view",
+    "expense.card.manage": "finance.view",
+    "expense.closeout.manage": "finance.view",
+    "expense.export": "finance.view",
+  };
+  const permissionPresets = {
+    store_manager: [
+      "dashboard.view",
+      "attendance.view",
+      "attendance.manage",
+      "attendance.review_correction",
+      "schedule.view",
+      "schedule.manage",
+      "schedule.approve",
+      "leave.view",
+      "leave.review",
+      "employee.view",
+    ],
+    part_lead: [
+      "dashboard.view",
+      "attendance.view",
+      "schedule.view",
+      "schedule.manage",
+      "leave.view",
+      "leave.review",
+      "employee.view",
+    ],
+    accountant: [
+      "payroll.view",
+      "sales.view",
+      "finance.view",
+      "expense.manage",
+      "expense.receipt.review",
+      "expense.export",
+    ],
+    read_only: [
+      "dashboard.view",
+      "attendance.view",
+      "schedule.view",
+      "leave.view",
+      "employee.view",
+    ],
+  };
+  const expandPermissions = (values) => [
+    ...new Set([
+      ...values,
+      ...values.map((value) => permissionDependencies[value]).filter(Boolean),
+    ]),
+  ];
+  const requiredPermissions = (values) =>
+    new Set(
+      values.map((value) => permissionDependencies[value]).filter(Boolean),
+    );
+  const togglePermission = (values, value) => {
+    if (requiredPermissions(values).has(value)) return values;
+    return expandPermissions(
+      values.includes(value)
+        ? values.filter((item) => item !== value)
+        : [...values, value],
+    );
+  };
+  const employeeById = Object.fromEntries(
+    employees.map((employee) => [employee.id, employee]),
+  );
+  const openEditor = (account) =>
+    setEditing({
+      account,
+      roleCode: account.role_code,
+      staffId: account.staff_id || "",
+      status: account.status,
+      permissions: (account.timefit_user_management_permissions || [])
+        .filter((item) => item.allowed !== false)
+        .map((item) => item.permission_code),
+      categoryIds: (account.timefit_user_management_scopes || []).map(
+        (item) => item.category_id,
+      ),
+      costCenterIds: (
+        account.timefit_user_management_cost_center_scopes || []
+      ).map((item) => item.cost_center_id),
+    });
+  const toggleEditorValue = (key, value) =>
+    setEditing((current) => ({
+      ...current,
+      [key]:
+        key === "permissions"
+          ? togglePermission(current[key], value)
+          : current[key].includes(value)
+            ? current[key].filter((item) => item !== value)
+            : [...current[key], value],
+    }));
+  const saveAccount = async () => {
+    setBusy(true);
+    try {
+      await manageManagementAccount({
+        action: "update",
+        organizationId,
+        accountId: editing.account.id,
+        roleCode: editing.roleCode,
+        staffId: editing.staffId || null,
+        status: editing.status,
+        permissions: editing.permissions,
+        categoryIds: editing.categoryIds,
+        costCenterIds: editing.costCenterIds,
+      });
+      setEditing(null);
+      await refresh();
+      setMessage("관리자 계정 설정을 저장했어요.");
+    } catch (error) {
+      setMessage(error.message || "관리자 계정을 수정하지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const removeAccount = async (account) => {
+    const linked = account.account_origin === "linked_employee";
+    if (
+      !window.confirm(
+        linked
+          ? `${account.login_id}님의 관리자 권한을 회수할까요?\n직원 로그인과 기존 근무 데이터는 그대로 유지됩니다.`
+          : `${account.login_id} 독립 관리자 계정을 삭제할까요?\n이 계정은 더 이상 로그인할 수 없습니다.`,
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      await manageManagementAccount({
+        action: "delete",
+        organizationId,
+        accountId: account.id,
+      });
+      if (editing?.account.id === account.id) setEditing(null);
+      await refresh();
+      setMessage(
+        linked
+          ? "관리자 권한을 회수했어요. 직원 계정과 근무 데이터는 유지됩니다."
+          : "독립 관리자 계정을 삭제했어요.",
+      );
+    } catch (error) {
+      setMessage(error.message || "관리자 권한을 회수하지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="card settings-card management-account-settings">
+      <section className="management-account-heading">
+        <div>
+          <span className="settings-icon">♙</span>
+          <div>
+            <h2>권한형 관리자 계정</h2>
+            <p>로그인 아이디를 기준으로 담당 범위와 허용 기능을 관리합니다.</p>
+          </div>
+        </div>
+        <span className="management-count">
+          활성 관리자{" "}
+          {accounts.filter((account) => account.status === "active").length}명
+        </span>
+      </section>
+      <nav className="management-chapters" aria-label="관리자 계정 관리">
+        <button
+          type="button"
+          className={chapter === "accounts" ? "active" : ""}
+          onClick={() => setChapter("accounts")}
+        >
+          <b>연결된 관리자</b>
+          <small>확인 · 수정 · 삭제</small>
+          <span>{accounts.length}</span>
+        </button>
+        <button
+          type="button"
+          className={chapter === "create" ? "active" : ""}
+          onClick={() => setChapter("create")}
+        >
+          <b>새 관리자 등록</b>
+          <small>아이디 · 권한 발급</small>
+          <span>＋</span>
+        </button>
+      </nav>
+      {chapter === "create" && (
+        <>
+          <form
+            className="settings-form management-account-form"
+            onSubmit={submit}
+          >
+            <section className="settings-section">
+              <div className="management-link-mode">
+                <button
+                  type="button"
+                  className={createMode === "link_existing" ? "active" : ""}
+                  onClick={() => setCreateMode("link_existing")}
+                >
+                  <b>기존 직원에게 권한 부여</b>
+                  <small>직원 아이디와 비밀번호를 그대로 사용</small>
+                </button>
+                <button
+                  type="button"
+                  className={createMode === "standalone" ? "active" : ""}
+                  onClick={() => setCreateMode("standalone")}
+                >
+                  <b>독립 관리자 계정 생성</b>
+                  <small>직원으로 근무하지 않는 관리자</small>
+                </button>
+              </div>
+              <div className="settings-input-grid management-identity-grid">
+                {createMode === "standalone" && (
+                  <>
+                    <label>
+                      표시 이름
+                      <input
+                        name="displayName"
+                        required
+                        placeholder="예: 홀 매니저"
+                      />
+                    </label>
+                    <label>
+                      로그인 아이디
+                      <input
+                        name="loginId"
+                        pattern="[a-zA-Z0-9._-]{4,30}"
+                        required
+                        placeholder="예: hall.manager"
+                      />
+                      <small>
+                        화면에는 이 아이디가 관리자 식별자로 표시됩니다.
+                      </small>
+                    </label>
+                    <label>
+                      임시 비밀번호
+                      <input
+                        name="temporaryPassword"
+                        type="password"
+                        minLength="8"
+                        required
+                        autoComplete="new-password"
+                      />
+                    </label>
+                  </>
+                )}
+                <label>
+                  역할
+                  <select name="roleCode" defaultValue="manager">
+                    <option value="manager">매니저</option>
+                    <option value="executive_chef">총괄셰프</option>
+                  </select>
+                </label>
+                <label className="management-staff-link">
+                  {createMode === "link_existing"
+                    ? "권한을 부여할 직원"
+                    : "연결 직원"}
+                  <select
+                    name="staffId"
+                    defaultValue=""
+                    required={createMode === "link_existing"}
+                  >
+                    <option value="">
+                      {createMode === "link_existing"
+                        ? "앱 계정이 연결된 직원 선택"
+                        : "연결 안 함"}
+                    </option>
+                    {employees
+                      .filter(
+                        (employee) =>
+                          createMode === "standalone" || employee.userId,
+                      )
+                      .map((e) => (
+                        <option key={e.id} value={e.id}>
+                          {e.name} · {e.team}
+                        </option>
+                      ))}
+                  </select>
+                  <small>
+                    {createMode === "link_existing"
+                      ? "같은 계정으로 직원 앱과 관리자 웹을 사용합니다."
+                      : "본인 출퇴근 기능이 필요할 때만 연결합니다."}
+                  </small>
+                </label>
+              </div>
+              <fieldset className="management-permissions">
+                <legend>
+                  허용 기능 <small>업무에 필요한 항목만 선택</small>
+                </legend>
+                <div
+                  className="management-permission-presets"
+                  role="group"
+                  aria-label="권한 프리셋"
+                >
+                  {[
+                    ["store_manager", "매장 매니저"],
+                    ["part_lead", "파트 책임자"],
+                    ["accountant", "회계 담당자"],
+                    ["read_only", "조회 전용"],
+                  ].map(([value, label]) => (
+                    <button
+                      type="button"
+                      className="outline"
+                      key={value}
+                      onClick={() =>
+                        setCreatePermissions(
+                          expandPermissions(permissionPresets[value]),
+                        )
+                      }
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div className="management-option-grid">
+                  {permissionOptions.map(([value, label, description]) => (
+                    <label key={value}>
+                      <input
+                        type="checkbox"
+                        name="permissions"
+                        value={value}
+                        checked={createPermissions.includes(value)}
+                        disabled={requiredPermissions(createPermissions).has(
+                          value,
+                        )}
+                        onChange={() =>
+                          setCreatePermissions((current) =>
+                            togglePermission(current, value),
+                          )
+                        }
+                      />
+                      <span>
+                        <b>{label}</b>
+                        <small>
+                          {requiredPermissions(createPermissions).has(value)
+                            ? `${description} · 상위 권한에 필수`
+                            : description}
+                        </small>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              <fieldset className="management-permissions">
+                <legend>
+                  담당 구분 <small>미선택 시 전체 구분</small>
+                </legend>
+                <div className="management-option-grid category-options">
+                  {categories.map((category) => (
+                    <label key={category.id}>
+                      <input
+                        type="checkbox"
+                        name="categoryIds"
+                        value={category.id}
+                      />
+                      <span>
+                        <b>{category.name}</b>
+                        <small>해당 구분 직원만 담당</small>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              <fieldset className="management-permissions">
+                <legend>
+                  지출 담당 부서·섹션 <small>미선택 시 전체 지출</small>
+                </legend>
+                <div className="management-option-grid category-options">
+                  {costCenters.map((center) => (
+                    <label key={center.id}>
+                      <input
+                        type="checkbox"
+                        name="costCenterIds"
+                        value={center.id}
+                      />
+                      <span>
+                        <b>{center.name}</b>
+                        <small>
+                          {center.center_type === "section"
+                            ? "해당 섹션 지출만 검수"
+                            : "해당 부서와 하위 섹션 검수"}
+                        </small>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              <button className="submit management-create" disabled={busy}>
+                {busy
+                  ? "저장 중…"
+                  : createMode === "link_existing"
+                    ? "관리자 권한 부여"
+                    : "관리 계정 생성"}
+              </button>
+            </section>
+          </form>
+          {credentials && (
+            <div className="issued-credentials">
+              <b>이번에 발급한 로그인 정보</b>
+              <code>아이디 {credentials.loginId}</code>
+              <code>임시 비밀번호 {credentials.password}</code>
+              <small>이 창을 닫으면 비밀번호를 다시 표시하지 않습니다.</small>
+              <button className="outline" onClick={() => setCredentials(null)}>
+                확인
+              </button>
+            </div>
+          )}
+        </>
+      )}
+      {chapter === "accounts" && (
+        <section className="management-account-list">
+          <div className="management-list-title">
+            <div>
+              <h3>연결된 관리자 계정</h3>
+              <p>
+                아이디별 역할과 권한을 확인하고 변경하거나 회수할 수 있습니다.
+              </p>
+            </div>
+          </div>
+          <div className="management-account-cards">
+            {accounts.length ? (
+              accounts.map((account) => {
+                const granted = (
+                  account.timefit_user_management_permissions || []
+                )
+                  .filter((item) => item.allowed !== false)
+                  .map((item) => permissionName[item.permission_code])
+                  .filter(Boolean);
+                const linked = employeeById[account.staff_id];
+                return (
+                  <article key={account.id} className="management-account-card">
+                    <div className="management-account-avatar">
+                      {account.login_id.slice(0, 2).toUpperCase()}
+                    </div>
+                    <div className="management-account-info">
+                      <code>{account.login_id}</code>
+                      <span>
+                        {account.role_code === "executive_chef"
+                          ? "총괄셰프"
+                          : "매니저"}
+                        {linked
+                          ? ` · ${linked.name} 연결`
+                          : " · 직원 연결 없음"}{" "}
+                        ·{" "}
+                        {account.account_origin === "linked_employee"
+                          ? "기존 직원 계정"
+                          : "독립 관리자 계정"}
+                      </span>
+                      <div>
+                        {granted.map((label) => (
+                          <small key={label}>{label}</small>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="management-account-actions">
+                      <Chip
+                        type={account.status === "active" ? "green" : "gray"}
+                      >
+                        {account.status === "active" ? "활성" : "중지"}
+                      </Chip>
+                      <button
+                        type="button"
+                        className="outline"
+                        onClick={() => openEditor(account)}
+                      >
+                        확인 · 수정
+                      </button>
+                      <button
+                        type="button"
+                        className="management-delete"
+                        onClick={() => removeAccount(account)}
+                        disabled={busy}
+                      >
+                        {account.account_origin === "linked_employee"
+                          ? "권한 회수"
+                          : "계정 삭제"}
+                      </button>
+                    </div>
+                  </article>
+                );
+              })
+            ) : (
+              <p className="empty-state">연결된 관리자 계정이 없습니다.</p>
+            )}
+          </div>
+        </section>
+      )}
+      {editing && (
+        <Modal
+          title="관리자 계정 확인 · 수정"
+          onClose={() => !busy && setEditing(null)}
+        >
+          <div className="management-editor">
+            <div className="management-editor-id">
+              <small>로그인 아이디</small>
+              <code>{editing.account.login_id}</code>
+              <span>아이디는 계정 식별을 위해 변경할 수 없습니다.</span>
+            </div>
+            <div className="form-row">
+              <label>
+                역할
+                <select
+                  value={editing.roleCode}
+                  onChange={(event) =>
+                    setEditing({ ...editing, roleCode: event.target.value })
+                  }
+                >
+                  <option value="manager">매니저</option>
+                  <option value="executive_chef">총괄셰프</option>
+                </select>
+              </label>
+              <label>
+                계정 상태
+                <select
+                  value={editing.status}
+                  onChange={(event) =>
+                    setEditing({ ...editing, status: event.target.value })
+                  }
+                >
+                  <option value="active">활성</option>
+                  <option value="suspended">사용 중지</option>
+                </select>
+              </label>
+            </div>
+            <label>
+              연결 직원
+              <select
+                value={editing.staffId}
+                onChange={(event) =>
+                  setEditing({ ...editing, staffId: event.target.value })
+                }
+              >
+                <option value="">연결 안 함</option>
+                {employees.map((employee) => (
+                  <option key={employee.id} value={employee.id}>
+                    {employee.name} · {employee.team}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <fieldset className="management-permissions">
+              <legend>허용 기능</legend>
+              <div className="management-option-grid">
+                {permissionOptions.map(([value, label, description]) => (
+                  <label key={value}>
+                    <input
+                      type="checkbox"
+                      checked={editing.permissions.includes(value)}
+                      disabled={requiredPermissions(editing.permissions).has(
+                        value,
+                      )}
+                      onChange={() => toggleEditorValue("permissions", value)}
+                    />
+                    <span>
+                      <b>{label}</b>
+                      <small>
+                        {requiredPermissions(editing.permissions).has(value)
+                          ? `${description} · 상위 권한에 필수`
+                          : description}
+                      </small>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <fieldset className="management-permissions">
+              <legend>
+                담당 구분 <small>미선택 시 전체 구분</small>
+              </legend>
+              <div className="management-option-grid category-options">
+                {categories.map((category) => (
+                  <label key={category.id}>
+                    <input
+                      type="checkbox"
+                      checked={editing.categoryIds.includes(category.id)}
+                      onChange={() =>
+                        toggleEditorValue("categoryIds", category.id)
+                      }
+                    />
+                    <span>
+                      <b>{category.name}</b>
+                      <small>해당 구분 직원만 담당</small>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <fieldset className="management-permissions">
+              <legend>
+                지출 담당 부서·섹션 <small>미선택 시 전체 지출</small>
+              </legend>
+              <div className="management-option-grid category-options">
+                {costCenters.map((center) => (
+                  <label key={center.id}>
+                    <input
+                      type="checkbox"
+                      checked={editing.costCenterIds.includes(center.id)}
+                      onChange={() =>
+                        toggleEditorValue("costCenterIds", center.id)
+                      }
+                    />
+                    <span>
+                      <b>{center.name}</b>
+                      <small>
+                        {center.center_type === "section"
+                          ? "해당 섹션 지출만 검수"
+                          : "해당 부서와 하위 섹션 검수"}
+                      </small>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <div className="management-editor-actions">
+              <button
+                type="button"
+                className="management-delete"
+                onClick={() => removeAccount(editing.account)}
+                disabled={busy}
+              >
+                계정 삭제
+              </button>
+              <button
+                type="button"
+                className="submit"
+                onClick={saveAccount}
+                disabled={busy}
+              >
+                {busy ? "저장 중…" : "변경사항 저장"}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+      {message && (
+        <NoticeModal
+          message={message}
+          tone={/못|이미/.test(message) ? "error" : "success"}
+          onClose={() => setMessage("")}
+        />
+      )}
+    </section>
+  );
 }
 
 function TabletDeviceSettings({ organizationId }) {
-  const [devices, setDevices] = useState([]); const [loading, setLoading] = useState(true); const [message, setMessage] = useState('');
-  const refresh = () => { setLoading(true); loadTabletDevices(organizationId).then(setDevices).catch(error => setMessage(error.message || '태블릿 목록을 불러오지 못했습니다.')).finally(() => setLoading(false)); };
-  useEffect(() => { refresh(); }, [organizationId]);
-  const revoke = async device => { if (!window.confirm(`${device.display_name} 연결을 해제할까요? 해당 태블릿은 즉시 관리자 재연결이 필요합니다.`)) return; try { await revokeTabletDevice(device.id); refresh(); setMessage('태블릿 연결을 해제했어요.'); } catch { setMessage('태블릿 연결을 해제하지 못했습니다.'); } };
-  return <section className="card settings-card holiday-compensation-card"><section className="settings-section"><div className="settings-section-head"><span className="settings-icon">▣</span><div><h2>연결된 태블릿</h2><p>태블릿은 관리자 로그인으로 사업장에 연결됩니다. PIN은 더 이상 사용하지 않습니다.</p></div></div>{loading ? <LoadingBar label="연결된 태블릿을 불러오는 중…"/> : <div className="tablet-device-list">{devices.length ? devices.map(device => <div key={device.id} className="tablet-device-row"><div><b>{device.display_name}</b><span>마지막 사용 {device.last_used_at ? new Date(device.last_used_at).toLocaleString('ko-KR') : '없음'} · 만료 {new Date(device.expires_at).toLocaleDateString('ko-KR')}</span></div><button type="button" className="outline" onClick={() => revoke(device)}>연결 해제</button></div>) : <p className="empty-state">연결된 태블릿이 없어요. 태블릿에서 관리자 로그인 후 연결해 주세요.</p>}<div className="tablet-url"><div><small>태블릿 전용 접속 주소</small><code>{window.location.origin}/tablet</code></div></div></div>}</section>{message && <NoticeModal message={message} tone={/못/.test(message) ? 'error' : 'success'} onClose={() => setMessage('')}/>}</section>;
+  const [devices, setDevices] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState("");
+  const refresh = () => {
+    setLoading(true);
+    loadTabletDevices(organizationId)
+      .then(setDevices)
+      .catch((error) =>
+        setMessage(error.message || "태블릿 목록을 불러오지 못했습니다."),
+      )
+      .finally(() => setLoading(false));
+  };
+  useEffect(() => {
+    refresh();
+  }, [organizationId]);
+  const revoke = async (device) => {
+    if (
+      !window.confirm(
+        `${device.display_name} 연결을 해제할까요? 해당 태블릿은 즉시 관리자 재연결이 필요합니다.`,
+      )
+    )
+      return;
+    try {
+      await revokeTabletDevice(device.id);
+      refresh();
+      setMessage("태블릿 연결을 해제했어요.");
+    } catch {
+      setMessage("태블릿 연결을 해제하지 못했습니다.");
+    }
+  };
+  return (
+    <section className="card settings-card holiday-compensation-card">
+      <section className="settings-section">
+        <div className="settings-section-head">
+          <span className="settings-icon">▣</span>
+          <div>
+            <h2>연결된 태블릿</h2>
+            <p>
+              태블릿은 관리자 로그인으로 사업장에 연결됩니다. PIN은 더 이상
+              사용하지 않습니다.
+            </p>
+          </div>
+        </div>
+        {loading ? (
+          <LoadingBar label="연결된 태블릿을 불러오는 중…" />
+        ) : (
+          <div className="tablet-device-list">
+            {devices.length ? (
+              devices.map((device) => (
+                <div key={device.id} className="tablet-device-row">
+                  <div>
+                    <b>{device.display_name}</b>
+                    <span>
+                      마지막 사용{" "}
+                      {device.last_used_at
+                        ? new Date(device.last_used_at).toLocaleString("ko-KR")
+                        : "없음"}{" "}
+                      · 만료{" "}
+                      {new Date(device.expires_at).toLocaleDateString("ko-KR")}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="outline"
+                    onClick={() => revoke(device)}
+                  >
+                    연결 해제
+                  </button>
+                </div>
+              ))
+            ) : (
+              <p className="empty-state">
+                연결된 태블릿이 없어요. 태블릿에서 관리자 로그인 후 연결해
+                주세요.
+              </p>
+            )}
+            <div className="tablet-url">
+              <div>
+                <small>태블릿 전용 접속 주소</small>
+                <code>{window.location.origin}/tablet</code>
+              </div>
+            </div>
+          </div>
+        )}
+      </section>
+      {message && (
+        <NoticeModal
+          message={message}
+          tone={/못/.test(message) ? "error" : "success"}
+          onClose={() => setMessage("")}
+        />
+      )}
+    </section>
+  );
 }
 
 function TossPlaceConnectionSettings({ organizationId }) {
-  const [form, setForm] = useState({ display_name: 'Toss Place', service_id: '', service_code: '', merchant_id: '', sync_enabled: true });
-  const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false); const [message, setMessage] = useState(''); const [customCredentials, setCustomCredentials] = useState({ accessKey: '', accessSecret: '' });
-  useEffect(() => { getTossPlaceConnection(organizationId).then(data => { if (data) setForm({ display_name: data.display_name || 'Toss Place', service_id: data.service_id || '', service_code: data.service_code || '', merchant_id: data.merchant_id || '', sync_enabled: data.sync_enabled !== false }); }).catch(error => setMessage(error.message || 'Toss 연결 정보를 불러오지 못했습니다.')).finally(() => setLoading(false)); }, [organizationId]);
-  const save = async event => { event.preventDefault(); setBusy(true); try { const saved = await saveTossPlaceConnection({ ...form, organization_id: organizationId }); setForm(current => ({ ...current, merchant_id: saved.merchant_id || '' })); setMessage(saved.merchant_id ? 'Toss Place 연결 정보를 저장했어요. 다음 동기화부터 이 사업장 매출로 분리됩니다.' : '서비스 연결 정보를 저장했어요. 매출 동기화에는 Toss 판매점 ID도 추가해 주세요.'); } catch (error) { setMessage(error.message || 'Toss 연결 정보를 저장하지 못했습니다.'); } finally { setBusy(false); } };
-  const connectServerAccount = async () => { if (!form.service_id.trim() || !form.service_code.trim()) return setMessage('서비스 ID와 서비스 코드를 먼저 입력해 주세요.'); setBusy(true); try { const saved = await bootstrapTossPlaceConnection({ organizationId, displayName: form.display_name, serviceId: form.service_id, serviceCode: form.service_code }); setForm(current => ({ ...current, merchant_id: saved.merchant_id || '' })); setMessage('현재 서버에 등록된 Toss Place 계정을 이 사업장에 연결했어요.'); } catch (error) { setMessage(error.message || '현재 서버 계정을 연결하지 못했습니다.'); } finally { setBusy(false); } };
-  const saveCustomCredentials = async () => { if (!form.service_id.trim() || !form.service_code.trim()) return setMessage('서비스 ID와 서비스 코드를 먼저 저장해 주세요.'); setBusy(true); try { await saveTossPlaceConnection({ ...form, organization_id: organizationId }); await saveCustomTossPlaceCredentials({ organizationId, ...customCredentials }); setCustomCredentials({ accessKey: '', accessSecret: '' }); setMessage('맞춤 Toss API 인증 정보를 안전하게 저장했어요. 키는 다시 표시되지 않습니다.'); } catch (error) { setMessage(error.message || '맞춤 인증 정보를 저장하지 못했습니다.'); } finally { setBusy(false); } };
-  return <section className="card settings-card holiday-compensation-card"><form className="settings-form" onSubmit={save}><section className="settings-section"><div className="settings-section-head"><span className="settings-icon">₮</span><div><h2>Toss Place 매출 연결</h2><p>사업장별 서비스 연결 정보를 저장합니다. 인증 키는 서버에서 암호화해 저장하고 다시 표시하지 않습니다.</p></div></div>{loading ? <LoadingBar label="Toss Place 연결 정보를 불러오는 중…"/> : <><div className="settings-input-grid"><label>표시 이름<input value={form.display_name} onChange={e => setForm({ ...form, display_name: e.target.value })} placeholder="예: 버터빌라 Toss Place" required/></label><label>서비스 ID<input value={form.service_id} onChange={e => setForm({ ...form, service_id: e.target.value })} placeholder="예: butter-villa" required/></label><label>서비스 코드<input value={form.service_code} onChange={e => setForm({ ...form, service_code: e.target.value.toUpperCase() })} placeholder="예: NBV2QWFJ" required/></label><label>Toss 판매점 ID <small>(Open API용)</small><input inputMode="numeric" value={form.merchant_id} onChange={e => setForm({ ...form, merchant_id: e.target.value.replace(/\D/g, '') })} placeholder="개발자센터의 숫자 ID"/></label></div><div className="settings-actions"><button type="button" className="outline" onClick={connectServerAccount} disabled={busy}>현재 서버에 연결된 Toss 계정 사용</button></div><label className="toggle-label"><input type="checkbox" checked={form.sync_enabled} onChange={e => setForm({ ...form, sync_enabled: e.target.checked })}/><span><i/></span><b>매일 매출 동기화 사용</b></label><p className="settings-help">서비스 ID·코드는 Toss POS의 ‘코드로 연결하기’에 사용합니다. 판매점 ID는 Open API 주문 조회를 위한 숫자 식별자이며, 서비스 ID와는 다를 수 있습니다.</p></>}</section><button className="submit settings-save" disabled={loading || busy}>{busy ? '저장 중…' : 'Toss 연결 정보 저장'}</button></form><section className="settings-section"><div className="settings-section-head"><span className="settings-icon">⌁</span><div><h2>맞춤 API 인증정보</h2><p>다른 Toss 개발자 앱을 쓰는 사업장만 입력하세요. 입력 즉시 암호화되며 이후에는 새 값으로 교체만 가능합니다.</p></div></div><div className="settings-input-grid"><label>Access Key<input autoComplete="off" value={customCredentials.accessKey} onChange={e => setCustomCredentials({ ...customCredentials, accessKey: e.target.value })} placeholder="Toss 개발자센터 Access Key"/></label><label>Access Secret<input type="password" autoComplete="new-password" value={customCredentials.accessSecret} onChange={e => setCustomCredentials({ ...customCredentials, accessSecret: e.target.value })} placeholder="Toss 개발자센터 Access Secret"/></label></div><button type="button" className="outline" onClick={saveCustomCredentials} disabled={busy}>맞춤 인증정보 안전 저장</button></section>{message && <NoticeModal message={message} tone={/못/.test(message) ? 'error' : 'success'} onClose={() => setMessage('')}/>}</section>;
+  const [form, setForm] = useState({
+    display_name: "Toss Place",
+    service_id: "",
+    service_code: "",
+    merchant_id: "",
+    sync_enabled: true,
+  });
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [customCredentials, setCustomCredentials] = useState({
+    accessKey: "",
+    accessSecret: "",
+  });
+  useEffect(() => {
+    getTossPlaceConnection(organizationId)
+      .then((data) => {
+        if (data)
+          setForm({
+            display_name: data.display_name || "Toss Place",
+            service_id: data.service_id || "",
+            service_code: data.service_code || "",
+            merchant_id: data.merchant_id || "",
+            sync_enabled: data.sync_enabled !== false,
+          });
+      })
+      .catch((error) =>
+        setMessage(error.message || "Toss 연결 정보를 불러오지 못했습니다."),
+      )
+      .finally(() => setLoading(false));
+  }, [organizationId]);
+  const save = async (event) => {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      const saved = await saveTossPlaceConnection({
+        ...form,
+        organization_id: organizationId,
+      });
+      setForm((current) => ({
+        ...current,
+        merchant_id: saved.merchant_id || "",
+      }));
+      setMessage(
+        saved.merchant_id
+          ? "Toss Place 연결 정보를 저장했어요. 다음 동기화부터 이 사업장 매출로 분리됩니다."
+          : "서비스 연결 정보를 저장했어요. 매출 동기화에는 Toss 판매점 ID도 추가해 주세요.",
+      );
+    } catch (error) {
+      setMessage(error.message || "Toss 연결 정보를 저장하지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const connectServerAccount = async () => {
+    if (!form.service_id.trim() || !form.service_code.trim())
+      return setMessage("서비스 ID와 서비스 코드를 먼저 입력해 주세요.");
+    setBusy(true);
+    try {
+      const saved = await bootstrapTossPlaceConnection({
+        organizationId,
+        displayName: form.display_name,
+        serviceId: form.service_id,
+        serviceCode: form.service_code,
+      });
+      setForm((current) => ({
+        ...current,
+        merchant_id: saved.merchant_id || "",
+      }));
+      setMessage(
+        "현재 서버에 등록된 Toss Place 계정을 이 사업장에 연결했어요.",
+      );
+    } catch (error) {
+      setMessage(error.message || "현재 서버 계정을 연결하지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const saveCustomCredentials = async () => {
+    if (!form.service_id.trim() || !form.service_code.trim())
+      return setMessage("서비스 ID와 서비스 코드를 먼저 저장해 주세요.");
+    setBusy(true);
+    try {
+      await saveTossPlaceConnection({
+        ...form,
+        organization_id: organizationId,
+      });
+      await saveCustomTossPlaceCredentials({
+        organizationId,
+        ...customCredentials,
+      });
+      setCustomCredentials({ accessKey: "", accessSecret: "" });
+      setMessage(
+        "맞춤 Toss API 인증 정보를 안전하게 저장했어요. 키는 다시 표시되지 않습니다.",
+      );
+    } catch (error) {
+      setMessage(error.message || "맞춤 인증 정보를 저장하지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="card settings-card holiday-compensation-card">
+      <form className="settings-form" onSubmit={save}>
+        <section className="settings-section">
+          <div className="settings-section-head">
+            <span className="settings-icon">₮</span>
+            <div>
+              <h2>Toss Place 매출 연결</h2>
+              <p>
+                사업장별 서비스 연결 정보를 저장합니다. 인증 키는 서버에서
+                암호화해 저장하고 다시 표시하지 않습니다.
+              </p>
+            </div>
+          </div>
+          {loading ? (
+            <LoadingBar label="Toss Place 연결 정보를 불러오는 중…" />
+          ) : (
+            <>
+              <div className="settings-input-grid">
+                <label>
+                  표시 이름
+                  <input
+                    value={form.display_name}
+                    onChange={(e) =>
+                      setForm({ ...form, display_name: e.target.value })
+                    }
+                    placeholder="예: 버터빌라 Toss Place"
+                    required
+                  />
+                </label>
+                <label>
+                  서비스 ID
+                  <input
+                    value={form.service_id}
+                    onChange={(e) =>
+                      setForm({ ...form, service_id: e.target.value })
+                    }
+                    placeholder="예: butter-villa"
+                    required
+                  />
+                </label>
+                <label>
+                  서비스 코드
+                  <input
+                    value={form.service_code}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        service_code: e.target.value.toUpperCase(),
+                      })
+                    }
+                    placeholder="예: NBV2QWFJ"
+                    required
+                  />
+                </label>
+                <label>
+                  Toss 판매점 ID <small>(Open API용)</small>
+                  <input
+                    inputMode="numeric"
+                    value={form.merchant_id}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        merchant_id: e.target.value.replace(/\D/g, ""),
+                      })
+                    }
+                    placeholder="개발자센터의 숫자 ID"
+                  />
+                </label>
+              </div>
+              <div className="settings-actions">
+                <button
+                  type="button"
+                  className="outline"
+                  onClick={connectServerAccount}
+                  disabled={busy}
+                >
+                  현재 서버에 연결된 Toss 계정 사용
+                </button>
+              </div>
+              <label className="toggle-label">
+                <input
+                  type="checkbox"
+                  checked={form.sync_enabled}
+                  onChange={(e) =>
+                    setForm({ ...form, sync_enabled: e.target.checked })
+                  }
+                />
+                <span>
+                  <i />
+                </span>
+                <b>매일 매출 동기화 사용</b>
+              </label>
+              <p className="settings-help">
+                서비스 ID·코드는 Toss POS의 ‘코드로 연결하기’에 사용합니다.
+                판매점 ID는 Open API 주문 조회를 위한 숫자 식별자이며, 서비스
+                ID와는 다를 수 있습니다.
+              </p>
+            </>
+          )}
+        </section>
+        <button className="submit settings-save" disabled={loading || busy}>
+          {busy ? "저장 중…" : "Toss 연결 정보 저장"}
+        </button>
+      </form>
+      <section className="settings-section">
+        <div className="settings-section-head">
+          <span className="settings-icon">⌁</span>
+          <div>
+            <h2>맞춤 API 인증정보</h2>
+            <p>
+              다른 Toss 개발자 앱을 쓰는 사업장만 입력하세요. 입력 즉시
+              암호화되며 이후에는 새 값으로 교체만 가능합니다.
+            </p>
+          </div>
+        </div>
+        <div className="settings-input-grid">
+          <label>
+            Access Key
+            <input
+              autoComplete="off"
+              value={customCredentials.accessKey}
+              onChange={(e) =>
+                setCustomCredentials({
+                  ...customCredentials,
+                  accessKey: e.target.value,
+                })
+              }
+              placeholder="Toss 개발자센터 Access Key"
+            />
+          </label>
+          <label>
+            Access Secret
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={customCredentials.accessSecret}
+              onChange={(e) =>
+                setCustomCredentials({
+                  ...customCredentials,
+                  accessSecret: e.target.value,
+                })
+              }
+              placeholder="Toss 개발자센터 Access Secret"
+            />
+          </label>
+        </div>
+        <button
+          type="button"
+          className="outline"
+          onClick={saveCustomCredentials}
+          disabled={busy}
+        >
+          맞춤 인증정보 안전 저장
+        </button>
+      </section>
+      {message && (
+        <NoticeModal
+          message={message}
+          tone={/못/.test(message) ? "error" : "success"}
+          onClose={() => setMessage("")}
+        />
+      )}
+    </section>
+  );
 }
 
 function LeavePolicySettings({ organizationId, onSaved }) {
-  const [form, setForm] = useState(DEFAULT_LEAVE_POLICY); const [holidayDate, setHolidayDate] = useState(''); const [loading, setLoading] = useState(true); const [message, setMessage] = useState('');
-  useEffect(() => { getOrganizationSettings(organizationId).then(data => setForm({ ...DEFAULT_LEAVE_POLICY, ...(data || {}), weekly_holiday_weekdays: data?.weekly_holiday_weekdays || [0], public_holiday_dates: data?.public_holiday_dates || [] })).catch(error => setMessage(error.message)).finally(() => setLoading(false)); }, [organizationId]);
-  const save = async event => { event.preventDefault(); try { await saveOrganizationSettings({ ...form, organization_id: organizationId, annual_leave_grant_days: Number(form.annual_leave_grant_days), annual_leave_grant_after_months: Number(form.annual_leave_grant_after_months), monthly_leave_grant_days: Number(form.monthly_leave_grant_days), monthly_leave_min_scheduled_days: Number(form.monthly_leave_min_scheduled_days) }); setMessage('연차·월차·휴일 계산 기준을 저장했어요.'); onSaved?.(); } catch (error) { setMessage(error.message || '저장하지 못했습니다.'); } };
-  const addHoliday = () => { const value = holidayDate || document.querySelector('.holiday-date-add input')?.value || ''; if (!value) return setMessage('공휴일 날짜를 먼저 선택해 주세요.'); if ((form.public_holiday_dates || []).includes(value)) return setMessage('이미 등록된 공휴일입니다.'); setForm(current => ({ ...current, public_holiday_dates: [...(current.public_holiday_dates || []), value].sort() })); setHolidayDate(''); };
-  const toggleWeekday = index => setForm({ ...form, weekly_holiday_weekdays: (form.weekly_holiday_weekdays || []).includes(index) ? form.weekly_holiday_weekdays.filter(value => value !== index) : [...(form.weekly_holiday_weekdays || []), index].sort() });
-  return <section className="card settings-card leave-policy-card">{loading ? <LoadingBar label="연차 정책을 불러오는 중…"/> : <form className="settings-form" onSubmit={save}><section className="settings-section leave-policy-settings"><div className="settings-section-head"><span className="settings-icon">◫</span><div><h2>연차 · 월차 · 휴일 계산</h2><p>직원별 발생·잔여 연차와 휴가 신청 일수에 바로 적용됩니다.</p></div></div><div className="settings-input-grid leave-policy-grid"><label>연차 부여 일수<span className="input-with-unit"><input type="number" min="0" max="30" step="0.5" value={form.annual_leave_grant_days} onChange={e => setForm({...form,annual_leave_grant_days:e.target.value})}/><em>일</em></span></label><label>연차 부여 조건<span className="input-with-unit"><input type="number" min="1" max="60" value={form.annual_leave_grant_after_months} onChange={e => setForm({...form,annual_leave_grant_after_months:e.target.value})}/><em>개월 재직</em></span></label></div><div className="leave-policy-monthly"><label className="toggle-label"><input type="checkbox" checked={Boolean(form.monthly_leave_enabled)} onChange={e => setForm({...form,monthly_leave_enabled:e.target.checked})}/><span><i/></span><b>입사 1년 미만 월차 자동 발생</b></label>{form.monthly_leave_enabled && <div className="settings-input-grid leave-policy-grid"><label>월차 발생 일수<span className="input-with-unit"><input type="number" min="0" max="3" step="0.5" value={form.monthly_leave_grant_days} onChange={e => setForm({...form,monthly_leave_grant_days:e.target.value})}/><em>일/월</em></span></label><label>월차 생성 조건<span className="input-with-unit"><input type="number" min="0" max="31" value={form.monthly_leave_min_scheduled_days} onChange={e => setForm({...form,monthly_leave_min_scheduled_days:e.target.value})}/><em>일 이상 근무</em></span></label></div>}<p className="settings-help">월별 스케줄에 등록된 실제 근무일을 기준으로 월차 조건을 확인합니다.</p></div><div className="holiday-policy"><label className="toggle-label"><input type="checkbox" checked={Boolean(form.exclude_holidays_from_leave)} onChange={e => setForm({...form,exclude_holidays_from_leave:e.target.checked})}/><span><i/></span><b>휴가 일수 계산에서 정기휴일·공휴일 제외</b></label>{form.exclude_holidays_from_leave && <><div className="weekday-picker"><b>정기 휴일</b><div>{KOREAN_WEEKDAYS.map((day,index) => <button type="button" className={(form.weekly_holiday_weekdays || []).includes(index) ? 'selected' : ''} onClick={() => toggleWeekday(index)} key={day}>{day}</button>)}</div></div><div className="holiday-date-add"><label>공휴일 직접 등록<input type="date" value={holidayDate} onChange={e => setHolidayDate(e.target.value)}/></label><button type="button" className="outline" onClick={addHoliday}>+ 날짜 추가</button></div><div className="shift-type-chips holiday-chips">{(form.public_holiday_dates || []).length ? form.public_holiday_dates.map(date => <span key={date}>{date}<button type="button" aria-label={`${date} 삭제`} onClick={() => setForm({...form,public_holiday_dates:form.public_holiday_dates.filter(value => value !== date)})}>×</button></span>) : <small>등록된 공휴일이 없습니다.</small>}</div></>}</div></section><button className="submit settings-save">계산 기준 저장</button></form>}{message && <NoticeModal message={message} tone={/못|오류/.test(message) ? 'error' : 'success'} onClose={() => setMessage('')}/>}</section>;
+  const [form, setForm] = useState(DEFAULT_LEAVE_POLICY);
+  const [holidayDate, setHolidayDate] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState("");
+  useEffect(() => {
+    getOrganizationSettings(organizationId)
+      .then((data) =>
+        setForm({
+          ...DEFAULT_LEAVE_POLICY,
+          ...(data || {}),
+          weekly_holiday_weekdays: data?.weekly_holiday_weekdays || [0],
+          public_holiday_dates: data?.public_holiday_dates || [],
+        }),
+      )
+      .catch((error) => setMessage(error.message))
+      .finally(() => setLoading(false));
+  }, [organizationId]);
+  const save = async (event) => {
+    event.preventDefault();
+    try {
+      await saveOrganizationSettings({
+        ...form,
+        organization_id: organizationId,
+        annual_leave_grant_days: Number(form.annual_leave_grant_days),
+        annual_leave_grant_after_months: Number(
+          form.annual_leave_grant_after_months,
+        ),
+        monthly_leave_grant_days: Number(form.monthly_leave_grant_days),
+        monthly_leave_min_scheduled_days: Number(
+          form.monthly_leave_min_scheduled_days,
+        ),
+      });
+      setMessage("연차·월차·휴일 계산 기준을 저장했어요.");
+      onSaved?.();
+    } catch (error) {
+      setMessage(error.message || "저장하지 못했습니다.");
+    }
+  };
+  const addHoliday = () => {
+    const value =
+      holidayDate ||
+      document.querySelector(".holiday-date-add input")?.value ||
+      "";
+    if (!value) return setMessage("공휴일 날짜를 먼저 선택해 주세요.");
+    if ((form.public_holiday_dates || []).includes(value))
+      return setMessage("이미 등록된 공휴일입니다.");
+    setForm((current) => ({
+      ...current,
+      public_holiday_dates: [
+        ...(current.public_holiday_dates || []),
+        value,
+      ].sort(),
+    }));
+    setHolidayDate("");
+  };
+  const toggleWeekday = (index) =>
+    setForm({
+      ...form,
+      weekly_holiday_weekdays: (form.weekly_holiday_weekdays || []).includes(
+        index,
+      )
+        ? form.weekly_holiday_weekdays.filter((value) => value !== index)
+        : [...(form.weekly_holiday_weekdays || []), index].sort(),
+    });
+  return (
+    <section className="card settings-card leave-policy-card">
+      {loading ? (
+        <LoadingBar label="연차 정책을 불러오는 중…" />
+      ) : (
+        <form className="settings-form" onSubmit={save}>
+          <section className="settings-section leave-policy-settings">
+            <div className="settings-section-head">
+              <span className="settings-icon">◫</span>
+              <div>
+                <h2>연차 · 월차 · 휴일 계산</h2>
+                <p>직원별 발생·잔여 연차와 휴가 신청 일수에 바로 적용됩니다.</p>
+              </div>
+            </div>
+            <div className="settings-input-grid leave-policy-grid">
+              <label>
+                연차 부여 일수
+                <span className="input-with-unit">
+                  <input
+                    type="number"
+                    min="0"
+                    max="30"
+                    step="0.5"
+                    value={form.annual_leave_grant_days}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        annual_leave_grant_days: e.target.value,
+                      })
+                    }
+                  />
+                  <em>일</em>
+                </span>
+              </label>
+              <label>
+                연차 부여 조건
+                <span className="input-with-unit">
+                  <input
+                    type="number"
+                    min="1"
+                    max="60"
+                    value={form.annual_leave_grant_after_months}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        annual_leave_grant_after_months: e.target.value,
+                      })
+                    }
+                  />
+                  <em>개월 재직</em>
+                </span>
+              </label>
+            </div>
+            <div className="leave-policy-monthly">
+              <label className="toggle-label">
+                <input
+                  type="checkbox"
+                  checked={Boolean(form.monthly_leave_enabled)}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      monthly_leave_enabled: e.target.checked,
+                    })
+                  }
+                />
+                <span>
+                  <i />
+                </span>
+                <b>입사 1년 미만 월차 자동 발생</b>
+              </label>
+              {form.monthly_leave_enabled && (
+                <div className="settings-input-grid leave-policy-grid">
+                  <label>
+                    월차 발생 일수
+                    <span className="input-with-unit">
+                      <input
+                        type="number"
+                        min="0"
+                        max="3"
+                        step="0.5"
+                        value={form.monthly_leave_grant_days}
+                        onChange={(e) =>
+                          setForm({
+                            ...form,
+                            monthly_leave_grant_days: e.target.value,
+                          })
+                        }
+                      />
+                      <em>일/월</em>
+                    </span>
+                  </label>
+                  <label>
+                    월차 생성 조건
+                    <span className="input-with-unit">
+                      <input
+                        type="number"
+                        min="0"
+                        max="31"
+                        value={form.monthly_leave_min_scheduled_days}
+                        onChange={(e) =>
+                          setForm({
+                            ...form,
+                            monthly_leave_min_scheduled_days: e.target.value,
+                          })
+                        }
+                      />
+                      <em>일 이상 근무</em>
+                    </span>
+                  </label>
+                </div>
+              )}
+              <p className="settings-help">
+                월별 스케줄에 등록된 실제 근무일을 기준으로 월차 조건을
+                확인합니다.
+              </p>
+            </div>
+            <div className="holiday-policy">
+              <label className="toggle-label">
+                <input
+                  type="checkbox"
+                  checked={Boolean(form.exclude_holidays_from_leave)}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      exclude_holidays_from_leave: e.target.checked,
+                    })
+                  }
+                />
+                <span>
+                  <i />
+                </span>
+                <b>휴가 일수 계산에서 정기휴일·공휴일 제외</b>
+              </label>
+              {form.exclude_holidays_from_leave && (
+                <>
+                  <div className="weekday-picker">
+                    <b>정기 휴일</b>
+                    <div>
+                      {KOREAN_WEEKDAYS.map((day, index) => (
+                        <button
+                          type="button"
+                          className={
+                            (form.weekly_holiday_weekdays || []).includes(index)
+                              ? "selected"
+                              : ""
+                          }
+                          onClick={() => toggleWeekday(index)}
+                          key={day}
+                        >
+                          {day}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="holiday-date-add">
+                    <label>
+                      공휴일 직접 등록
+                      <input
+                        type="date"
+                        value={holidayDate}
+                        onChange={(e) => setHolidayDate(e.target.value)}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="outline"
+                      onClick={addHoliday}
+                    >
+                      + 날짜 추가
+                    </button>
+                  </div>
+                  <div className="shift-type-chips holiday-chips">
+                    {(form.public_holiday_dates || []).length ? (
+                      form.public_holiday_dates.map((date) => (
+                        <span key={date}>
+                          {date}
+                          <button
+                            type="button"
+                            aria-label={`${date} 삭제`}
+                            onClick={() =>
+                              setForm({
+                                ...form,
+                                public_holiday_dates:
+                                  form.public_holiday_dates.filter(
+                                    (value) => value !== date,
+                                  ),
+                              })
+                            }
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))
+                    ) : (
+                      <small>등록된 공휴일이 없습니다.</small>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          </section>
+          <button className="submit settings-save">계산 기준 저장</button>
+        </form>
+      )}
+      {message && (
+        <NoticeModal
+          message={message}
+          tone={/못|오류/.test(message) ? "error" : "success"}
+          onClose={() => setMessage("")}
+        />
+      )}
+    </section>
+  );
 }
 
 function HolidayWorkCompensationSettings({ organizationId, onSaved }) {
-  const [form, setForm] = useState({ public_holiday_work_compensation: 'none', public_holiday_work_compensation_days: 1, weekly_holiday_work_compensation: 'none', weekly_holiday_work_compensation_days: 1 }); const [loading, setLoading] = useState(true); const [message, setMessage] = useState('');
-  useEffect(() => { getOrganizationSettings(organizationId).then(data => setForm({ public_holiday_work_compensation: data?.public_holiday_work_compensation || 'none', public_holiday_work_compensation_days: Number(data?.public_holiday_work_compensation_days || 1), weekly_holiday_work_compensation: data?.weekly_holiday_work_compensation || 'none', weekly_holiday_work_compensation_days: Number(data?.weekly_holiday_work_compensation_days || 1) })).catch(error => setMessage(error.message)).finally(() => setLoading(false)); }, [organizationId]);
-  const options = [{ value: 'none', title: '보상 없음', description: '출퇴근 기록만 남깁니다.' }, { value: 'substitute_day_off', title: '대체휴무 적립', description: '직원별 대체휴무 잔여일로 적립합니다.' }, { value: 'additional_paid_leave', title: '추가 유급휴가 적립', description: '직원별 추가 유급휴가 잔여일로 적립합니다.' }];
-  const policyEditor = (title, description, key, daysKey) => <div className="holiday-compensation-policy"><div><b>{title}</b><p>{description}</p></div><div className="compensation-options">{options.map(option => <button type="button" key={option.value} className={form[key] === option.value ? 'selected' : ''} onClick={() => setForm({ ...form, [key]: option.value })}><b>{option.title}</b><span>{option.description}</span></button>)}</div>{form[key] !== 'none' && <label className="compensation-days">적립 일수<span className="input-with-unit"><input type="number" min="0.5" max="3" step="0.5" value={form[daysKey]} onChange={event => setForm({ ...form, [daysKey]: event.target.value })}/><em>일 / 근무 1회</em></span></label>}</div>;
-  const save = async event => { event.preventDefault(); try { await saveOrganizationSettings({ organization_id: organizationId, public_holiday_work_compensation: form.public_holiday_work_compensation, public_holiday_work_compensation_days: Number(form.public_holiday_work_compensation_days || 1), weekly_holiday_work_compensation: form.weekly_holiday_work_compensation, weekly_holiday_work_compensation_days: Number(form.weekly_holiday_work_compensation_days || 1) }); setMessage('공휴일·정기휴일 근무 보상 기준을 저장했어요.'); onSaved?.(); } catch (error) { setMessage(error.message || '저장하지 못했습니다.'); } };
-  return <section className="card settings-card holiday-compensation-card">{loading ? <LoadingBar label="휴일 근무 보상 기준을 불러오는 중…"/> : <form className="settings-form" onSubmit={save}><section className="settings-section"><div className="settings-section-head"><span className="settings-icon">☀</span><div><h2>공휴일 · 정기휴일 근무 보상</h2><p>태블릿 퇴근 기록이 완료되면 선택한 보상 일수를 자동으로 적립합니다.</p></div></div>{policyEditor('공휴일 근무', '운영 설정에 직접 등록한 공휴일에 근무한 경우 적용됩니다.', 'public_holiday_work_compensation', 'public_holiday_work_compensation_days')}{policyEditor('정기휴일 근무', '정기휴일로 지정한 요일에 근무한 경우 적용됩니다.', 'weekly_holiday_work_compensation', 'weekly_holiday_work_compensation_days')}<p className="settings-help">공휴일이 정기휴일과 겹치면 공휴일 기준을 우선 적용합니다. 법정 휴일수당·대체휴무 적용은 근로계약과 사업장 규모에 따라 다를 수 있어 운영 전 노무 검토가 필요합니다.</p></section><button className="submit settings-save">휴일 근무 보상 기준 저장</button></form>}{message && <NoticeModal message={message} tone={/못|오류/.test(message) ? 'error' : 'success'} onClose={() => setMessage('')}/>}</section>;
+  const [form, setForm] = useState({
+    public_holiday_work_compensation: "none",
+    public_holiday_work_compensation_days: 1,
+    weekly_holiday_work_compensation: "none",
+    weekly_holiday_work_compensation_days: 1,
+  });
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState("");
+  useEffect(() => {
+    getOrganizationSettings(organizationId)
+      .then((data) =>
+        setForm({
+          public_holiday_work_compensation:
+            data?.public_holiday_work_compensation || "none",
+          public_holiday_work_compensation_days: Number(
+            data?.public_holiday_work_compensation_days || 1,
+          ),
+          weekly_holiday_work_compensation:
+            data?.weekly_holiday_work_compensation || "none",
+          weekly_holiday_work_compensation_days: Number(
+            data?.weekly_holiday_work_compensation_days || 1,
+          ),
+        }),
+      )
+      .catch((error) => setMessage(error.message))
+      .finally(() => setLoading(false));
+  }, [organizationId]);
+  const options = [
+    {
+      value: "none",
+      title: "보상 없음",
+      description: "출퇴근 기록만 남깁니다.",
+    },
+    {
+      value: "substitute_day_off",
+      title: "대체휴무 적립",
+      description: "직원별 대체휴무 잔여일로 적립합니다.",
+    },
+    {
+      value: "additional_paid_leave",
+      title: "추가 유급휴가 적립",
+      description: "직원별 추가 유급휴가 잔여일로 적립합니다.",
+    },
+  ];
+  const policyEditor = (title, description, key, daysKey) => (
+    <div className="holiday-compensation-policy">
+      <div>
+        <b>{title}</b>
+        <p>{description}</p>
+      </div>
+      <div className="compensation-options">
+        {options.map((option) => (
+          <button
+            type="button"
+            key={option.value}
+            className={form[key] === option.value ? "selected" : ""}
+            onClick={() => setForm({ ...form, [key]: option.value })}
+          >
+            <b>{option.title}</b>
+            <span>{option.description}</span>
+          </button>
+        ))}
+      </div>
+      {form[key] !== "none" && (
+        <label className="compensation-days">
+          적립 일수
+          <span className="input-with-unit">
+            <input
+              type="number"
+              min="0.5"
+              max="3"
+              step="0.5"
+              value={form[daysKey]}
+              onChange={(event) =>
+                setForm({ ...form, [daysKey]: event.target.value })
+              }
+            />
+            <em>일 / 근무 1회</em>
+          </span>
+        </label>
+      )}
+    </div>
+  );
+  const save = async (event) => {
+    event.preventDefault();
+    try {
+      await saveOrganizationSettings({
+        organization_id: organizationId,
+        public_holiday_work_compensation: form.public_holiday_work_compensation,
+        public_holiday_work_compensation_days: Number(
+          form.public_holiday_work_compensation_days || 1,
+        ),
+        weekly_holiday_work_compensation: form.weekly_holiday_work_compensation,
+        weekly_holiday_work_compensation_days: Number(
+          form.weekly_holiday_work_compensation_days || 1,
+        ),
+      });
+      setMessage("공휴일·정기휴일 근무 보상 기준을 저장했어요.");
+      onSaved?.();
+    } catch (error) {
+      setMessage(error.message || "저장하지 못했습니다.");
+    }
+  };
+  return (
+    <section className="card settings-card holiday-compensation-card">
+      {loading ? (
+        <LoadingBar label="휴일 근무 보상 기준을 불러오는 중…" />
+      ) : (
+        <form className="settings-form" onSubmit={save}>
+          <section className="settings-section">
+            <div className="settings-section-head">
+              <span className="settings-icon">☀</span>
+              <div>
+                <h2>공휴일 · 정기휴일 근무 보상</h2>
+                <p>
+                  태블릿 퇴근 기록이 완료되면 선택한 보상 일수를 자동으로
+                  적립합니다.
+                </p>
+              </div>
+            </div>
+            {policyEditor(
+              "공휴일 근무",
+              "운영 설정에 직접 등록한 공휴일에 근무한 경우 적용됩니다.",
+              "public_holiday_work_compensation",
+              "public_holiday_work_compensation_days",
+            )}
+            {policyEditor(
+              "정기휴일 근무",
+              "정기휴일로 지정한 요일에 근무한 경우 적용됩니다.",
+              "weekly_holiday_work_compensation",
+              "weekly_holiday_work_compensation_days",
+            )}
+            <p className="settings-help">
+              공휴일이 정기휴일과 겹치면 공휴일 기준을 우선 적용합니다. 법정
+              휴일수당·대체휴무 적용은 근로계약과 사업장 규모에 따라 다를 수
+              있어 운영 전 노무 검토가 필요합니다.
+            </p>
+          </section>
+          <button className="submit settings-save">
+            휴일 근무 보상 기준 저장
+          </button>
+        </form>
+      )}
+      {message && (
+        <NoticeModal
+          message={message}
+          tone={/못|오류/.test(message) ? "error" : "success"}
+          onClose={() => setMessage("")}
+        />
+      )}
+    </section>
+  );
 }
 
 function AttendancePayrollSettingsLegacy({ organizationId, onSaved }) {
-  const [form, setForm] = useState({ attendance_rounding_minutes: 30, attendance_rounding_mode: 'ceil', month_end_auto_processing_enabled: true }); const [month, setMonth] = useState(todayKey.slice(0, 7)); const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false); const [message, setMessage] = useState('');
-  useEffect(() => { getOrganizationSettings(organizationId).then(data => setForm({ attendance_rounding_minutes: Number(data?.attendance_rounding_minutes || 30), attendance_rounding_mode: data?.attendance_rounding_mode || 'ceil', month_end_auto_processing_enabled: data?.month_end_auto_processing_enabled !== false })).catch(error => setMessage(error.message)).finally(() => setLoading(false)); }, [organizationId]);
-  const save = async event => { event.preventDefault(); setBusy(true); try { await saveOrganizationSettings({ organization_id: organizationId, attendance_rounding_minutes: Number(form.attendance_rounding_minutes), attendance_rounding_mode: form.attendance_rounding_mode, month_end_auto_processing_enabled: Boolean(form.month_end_auto_processing_enabled) }); setMessage('출퇴근 급여 계산 기준을 저장했어요.'); onSaved?.(); } catch (error) { setMessage(error.message || '저장하지 못했습니다.'); } finally { setBusy(false); } };
-  const processMonthEnd = async () => { if (!window.confirm(`${monthLabelFor(month)} 마감 처리를 실행할까요? 월차·연차 적립과 다음 달 정기휴일 일정이 생성됩니다.`)) return; setBusy(true); try { const result = await runMonthEndOperations({ organizationId, targetMonth: month }); await onSaved?.(); setMessage(`마감 완료: 월차 ${result.monthlyLeaveGranted}명 · 연차 ${result.annualLeaveGranted}명 · 다음 달 휴무 ${result.nextMonthDaysOffCreated}건을 반영했어요.`); } catch (error) { setMessage(error.message || '월말 마감 처리를 완료하지 못했습니다.'); } finally { setBusy(false); } };
-  return <section className="card settings-card holiday-compensation-card">{loading ? <LoadingBar label="급여 계산 기준을 불러오는 중…"/> : <><form className="settings-form" onSubmit={save}><section className="settings-section"><div className="settings-section-head"><span className="settings-icon">₩</span><div><h2>출퇴근 기반 급여 계산</h2><p>시급제는 실제 출퇴근 시간을 선택한 단위로 보정해 예상 급여에 반영합니다.</p></div></div><div className="settings-input-grid leave-policy-grid"><label>계산 단위<select value={form.attendance_rounding_minutes} onChange={event => setForm({ ...form, attendance_rounding_minutes: Number(event.target.value) })}>{[1,5,10,15,30,60].map(value => <option key={value} value={value}>{value}분</option>)}</select></label><label>단위 처리 방식<select value={form.attendance_rounding_mode} onChange={event => setForm({ ...form, attendance_rounding_mode: event.target.value })}><option value="ceil">올림 (예: 10분 → 30분)</option><option value="nearest">반올림</option><option value="floor">버림</option></select></label></div><p className="settings-help">예: 30분·올림 기준이면 실제 9시 10분 퇴근까지의 근무 시간이 다음 30분 단위로 반영됩니다. 근로계약·법정수당 기준은 별도 검토가 필요합니다.</p><label className="toggle-label"><input type="checkbox" checked={form.month_end_auto_processing_enabled} onChange={event => setForm({ ...form, month_end_auto_processing_enabled: event.target.checked })}/><span><i/></span><b>월말 자동 마감 처리 사용</b></label></section><button className="submit settings-save" disabled={busy}>{busy ? '저장 중…' : '급여 계산 기준 저장'}</button></form><section className="settings-section month-end-run"><div className="settings-section-head"><span className="settings-icon">◷</span><div><h2>월말 자동 반영</h2><p>선택한 달의 월차·연차를 적립하고 다음 달 토·일·공휴일 휴무 일정을 미리 생성합니다.</p></div></div><div className="month-end-actions"><label>마감 대상 월<input type="month" value={month} max={todayKey.slice(0, 7)} onChange={event => setMonth(event.target.value)}/></label><button type="button" className="outline" disabled={busy} onClick={processMonthEnd}>{busy ? '마감 처리 중…' : '월말 계산 실행'}</button></div></section></>}{message && <NoticeModal message={message} tone={/못|오류/.test(message) ? 'error' : 'success'} onClose={() => setMessage('')}/>}</section>;
+  const [form, setForm] = useState({
+    attendance_rounding_minutes: 30,
+    attendance_rounding_mode: "ceil",
+    month_end_auto_processing_enabled: true,
+  });
+  const [month, setMonth] = useState(todayKey.slice(0, 7));
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  useEffect(() => {
+    getOrganizationSettings(organizationId)
+      .then((data) =>
+        setForm({
+          attendance_rounding_minutes: Number(
+            data?.attendance_rounding_minutes || 30,
+          ),
+          attendance_rounding_mode: data?.attendance_rounding_mode || "ceil",
+          month_end_auto_processing_enabled:
+            data?.month_end_auto_processing_enabled !== false,
+        }),
+      )
+      .catch((error) => setMessage(error.message))
+      .finally(() => setLoading(false));
+  }, [organizationId]);
+  const save = async (event) => {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      await saveOrganizationSettings({
+        organization_id: organizationId,
+        attendance_rounding_minutes: Number(form.attendance_rounding_minutes),
+        attendance_rounding_mode: form.attendance_rounding_mode,
+        month_end_auto_processing_enabled: Boolean(
+          form.month_end_auto_processing_enabled,
+        ),
+      });
+      setMessage("출퇴근 급여 계산 기준을 저장했어요.");
+      onSaved?.();
+    } catch (error) {
+      setMessage(error.message || "저장하지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const processMonthEnd = async () => {
+    if (
+      !window.confirm(
+        `${monthLabelFor(month)} 마감 처리를 실행할까요? 월차·연차 적립과 다음 달 정기휴일 일정이 생성됩니다.`,
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      const result = await runMonthEndOperations({
+        organizationId,
+        targetMonth: month,
+      });
+      await onSaved?.();
+      setMessage(
+        `마감 완료: 월차 ${result.monthlyLeaveGranted}명 · 연차 ${result.annualLeaveGranted}명 · 다음 달 휴무 ${result.nextMonthDaysOffCreated}건을 반영했어요.`,
+      );
+    } catch (error) {
+      setMessage(error.message || "월말 마감 처리를 완료하지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="card settings-card holiday-compensation-card">
+      {loading ? (
+        <LoadingBar label="급여 계산 기준을 불러오는 중…" />
+      ) : (
+        <>
+          <form className="settings-form" onSubmit={save}>
+            <section className="settings-section">
+              <div className="settings-section-head">
+                <span className="settings-icon">₩</span>
+                <div>
+                  <h2>출퇴근 기반 급여 계산</h2>
+                  <p>
+                    시급제는 실제 출퇴근 시간을 선택한 단위로 보정해 예상 급여에
+                    반영합니다.
+                  </p>
+                </div>
+              </div>
+              <div className="settings-input-grid leave-policy-grid">
+                <label>
+                  계산 단위
+                  <select
+                    value={form.attendance_rounding_minutes}
+                    onChange={(event) =>
+                      setForm({
+                        ...form,
+                        attendance_rounding_minutes: Number(event.target.value),
+                      })
+                    }
+                  >
+                    {[1, 5, 10, 15, 30, 60].map((value) => (
+                      <option key={value} value={value}>
+                        {value}분
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  단위 처리 방식
+                  <select
+                    value={form.attendance_rounding_mode}
+                    onChange={(event) =>
+                      setForm({
+                        ...form,
+                        attendance_rounding_mode: event.target.value,
+                      })
+                    }
+                  >
+                    <option value="ceil">올림 (예: 10분 → 30분)</option>
+                    <option value="nearest">반올림</option>
+                    <option value="floor">버림</option>
+                  </select>
+                </label>
+              </div>
+              <p className="settings-help">
+                예: 30분·올림 기준이면 실제 9시 10분 퇴근까지의 근무 시간이 다음
+                30분 단위로 반영됩니다. 근로계약·법정수당 기준은 별도 검토가
+                필요합니다.
+              </p>
+              <label className="toggle-label">
+                <input
+                  type="checkbox"
+                  checked={form.month_end_auto_processing_enabled}
+                  onChange={(event) =>
+                    setForm({
+                      ...form,
+                      month_end_auto_processing_enabled: event.target.checked,
+                    })
+                  }
+                />
+                <span>
+                  <i />
+                </span>
+                <b>월말 자동 마감 처리 사용</b>
+              </label>
+            </section>
+            <button className="submit settings-save" disabled={busy}>
+              {busy ? "저장 중…" : "급여 계산 기준 저장"}
+            </button>
+          </form>
+          <section className="settings-section month-end-run">
+            <div className="settings-section-head">
+              <span className="settings-icon">◷</span>
+              <div>
+                <h2>월말 자동 반영</h2>
+                <p>
+                  선택한 달의 월차·연차를 적립하고 다음 달 토·일·공휴일 휴무
+                  일정을 미리 생성합니다.
+                </p>
+              </div>
+            </div>
+            <div className="month-end-actions">
+              <label>
+                마감 대상 월
+                <input
+                  type="month"
+                  value={month}
+                  max={todayKey.slice(0, 7)}
+                  onChange={(event) => setMonth(event.target.value)}
+                />
+              </label>
+              <button
+                type="button"
+                className="outline"
+                disabled={busy}
+                onClick={processMonthEnd}
+              >
+                {busy ? "마감 처리 중…" : "월말 계산 실행"}
+              </button>
+            </div>
+          </section>
+        </>
+      )}
+      {message && (
+        <NoticeModal
+          message={message}
+          tone={/못|오류/.test(message) ? "error" : "success"}
+          onClose={() => setMessage("")}
+        />
+      )}
+    </section>
+  );
 }
 
 function AttendancePayrollSettings({ organizationId, onSaved }) {
-  const [form, setForm] = useState({ attendance_rounding_minutes: 30, attendance_rounding_mode: 'ceil', payroll_deduct_break_enabled: true, payroll_rounding_enabled: true, month_end_auto_processing_enabled: true, payroll_notification_day: 25, payroll_notification_email_enabled: true, payroll_notification_kakao_enabled: false, payroll_notification_push_enabled: false }); const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false); const [message, setMessage] = useState('');
-  useEffect(() => { getOrganizationSettings(organizationId).then(data => setForm(current => ({ ...current, ...data, attendance_rounding_minutes: Number(data?.attendance_rounding_minutes || 30), payroll_notification_day: Number(data?.payroll_notification_day || 25) }))).catch(error => setMessage(error.message)).finally(() => setLoading(false)); }, [organizationId]);
-  const save = async event => { event.preventDefault(); setBusy(true); try { await saveOrganizationSettings({ organization_id: organizationId, attendance_rounding_minutes: Number(form.attendance_rounding_minutes), attendance_rounding_mode: form.attendance_rounding_mode, payroll_deduct_break_enabled: Boolean(form.payroll_deduct_break_enabled), payroll_rounding_enabled: Boolean(form.payroll_rounding_enabled), month_end_auto_processing_enabled: Boolean(form.month_end_auto_processing_enabled), payroll_notification_day: Number(form.payroll_notification_day), payroll_notification_email_enabled: Boolean(form.payroll_notification_email_enabled), payroll_notification_kakao_enabled: Boolean(form.payroll_notification_kakao_enabled), payroll_notification_push_enabled: Boolean(form.payroll_notification_push_enabled) }); setMessage('급여 계산과 급여일 알림 설정을 저장했어요.'); onSaved?.(); } catch (error) { setMessage(error.message || '저장하지 못했습니다.'); } finally { setBusy(false); } };
-  return <section className="card settings-card holiday-compensation-card">{loading ? <LoadingBar label="급여 설정을 불러오는 중…"/> : <form className="settings-form" onSubmit={save}><section className="settings-section"><div className="settings-section-head"><span className="settings-icon">₩</span><div><h2>출퇴근 기반 급여 계산</h2><p>시급제는 실제 출퇴근 시간을 선택한 단위로 보정해 예상 급여에 반영합니다.</p></div></div><div className="settings-input-grid"><label>계산 단위<select value={form.attendance_rounding_minutes} onChange={event => setForm({ ...form, attendance_rounding_minutes: Number(event.target.value) })}>{[1,5,10,15,30,60].map(value => <option key={value} value={value}>{value}분</option>)}</select></label><label>단위 처리 방식<select value={form.attendance_rounding_mode} onChange={event => setForm({ ...form, attendance_rounding_mode: event.target.value })}><option value="ceil">올림</option><option value="nearest">반올림</option><option value="floor">버림</option></select></label></div></section><section className="settings-section"><div className="settings-section-head"><span className="settings-icon">✉</span><div><h2>급여일 알림</h2><p>설정한 날짜에 직원별 알림 발송 대기열을 생성합니다. 이메일은 발송 환경 설정 시 자동 발송되고, 카카오·푸시는 채널 설정 후 활성화됩니다.</p></div></div><div className="settings-input-grid"><label>급여 알림일<input type="number" min="1" max="31" value={form.payroll_notification_day} onChange={event => setForm({ ...form, payroll_notification_day: event.target.value })}/></label><div className="notification-channel-options"><label className="toggle-label"><input type="checkbox" checked={form.payroll_notification_email_enabled} onChange={event => setForm({ ...form, payroll_notification_email_enabled: event.target.checked })}/><span><i/></span><b>이메일</b></label><label className="toggle-label"><input type="checkbox" checked={form.payroll_notification_kakao_enabled} onChange={event => setForm({ ...form, payroll_notification_kakao_enabled: event.target.checked })}/><span><i/></span><b>카카오 알림톡</b></label><label className="toggle-label"><input type="checkbox" checked={form.payroll_notification_push_enabled} onChange={event => setForm({ ...form, payroll_notification_push_enabled: event.target.checked })}/><span><i/></span><b>푸시 알림</b></label></div></div><p className="settings-help">급여일이 없는 달(예: 31일)은 해당 월의 마지막 날에 발송하도록 다음 단계에서 확장할 수 있습니다. 현재는 매일 오전 10시(KST) 발송 대기열을 검사합니다.</p></section><button className="submit settings-save" disabled={busy}>{busy ? '저장 중…' : '급여 설정 저장'}</button></form>}{message && <NoticeModal message={message} tone={/못|오류/.test(message) ? 'error' : 'success'} onClose={() => setMessage('')}/>}</section>;
+  const [form, setForm] = useState({
+    attendance_rounding_minutes: 30,
+    attendance_rounding_mode: "ceil",
+    payroll_deduct_break_enabled: true,
+    payroll_rounding_enabled: true,
+    month_end_auto_processing_enabled: true,
+    payroll_notification_day: 25,
+    payroll_notification_email_enabled: true,
+    payroll_notification_kakao_enabled: false,
+    payroll_notification_push_enabled: false,
+  });
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  useEffect(() => {
+    getOrganizationSettings(organizationId)
+      .then((data) =>
+        setForm((current) => ({
+          ...current,
+          ...data,
+          attendance_rounding_minutes: Number(
+            data?.attendance_rounding_minutes || 30,
+          ),
+          payroll_notification_day: Number(
+            data?.payroll_notification_day || 25,
+          ),
+        })),
+      )
+      .catch((error) => setMessage(error.message))
+      .finally(() => setLoading(false));
+  }, [organizationId]);
+  const save = async (event) => {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      await saveOrganizationSettings({
+        organization_id: organizationId,
+        attendance_rounding_minutes: Number(form.attendance_rounding_minutes),
+        attendance_rounding_mode: form.attendance_rounding_mode,
+        payroll_deduct_break_enabled: Boolean(
+          form.payroll_deduct_break_enabled,
+        ),
+        payroll_rounding_enabled: Boolean(form.payroll_rounding_enabled),
+        month_end_auto_processing_enabled: Boolean(
+          form.month_end_auto_processing_enabled,
+        ),
+        payroll_notification_day: Number(form.payroll_notification_day),
+        payroll_notification_email_enabled: Boolean(
+          form.payroll_notification_email_enabled,
+        ),
+        payroll_notification_kakao_enabled: Boolean(
+          form.payroll_notification_kakao_enabled,
+        ),
+        payroll_notification_push_enabled: Boolean(
+          form.payroll_notification_push_enabled,
+        ),
+      });
+      setMessage("급여 계산과 급여일 알림 설정을 저장했어요.");
+      onSaved?.();
+    } catch (error) {
+      setMessage(error.message || "저장하지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="card settings-card holiday-compensation-card">
+      {loading ? (
+        <LoadingBar label="급여 설정을 불러오는 중…" />
+      ) : (
+        <form className="settings-form" onSubmit={save}>
+          <section className="settings-section">
+            <div className="settings-section-head">
+              <span className="settings-icon">₩</span>
+              <div>
+                <h2>출퇴근 기반 급여 계산</h2>
+                <p>
+                  시급제는 실제 출퇴근 시간을 선택한 단위로 보정해 예상 급여에
+                  반영합니다.
+                </p>
+              </div>
+            </div>
+            <div className="settings-input-grid">
+              <label>
+                계산 단위
+                <select
+                  value={form.attendance_rounding_minutes}
+                  onChange={(event) =>
+                    setForm({
+                      ...form,
+                      attendance_rounding_minutes: Number(event.target.value),
+                    })
+                  }
+                >
+                  {[1, 5, 10, 15, 30, 60].map((value) => (
+                    <option key={value} value={value}>
+                      {value}분
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                단위 처리 방식
+                <select
+                  value={form.attendance_rounding_mode}
+                  onChange={(event) =>
+                    setForm({
+                      ...form,
+                      attendance_rounding_mode: event.target.value,
+                    })
+                  }
+                >
+                  <option value="ceil">올림</option>
+                  <option value="nearest">반올림</option>
+                  <option value="floor">버림</option>
+                </select>
+              </label>
+            </div>
+          </section>
+          <section className="settings-section">
+            <div className="settings-section-head">
+              <span className="settings-icon">✉</span>
+              <div>
+                <h2>급여일 알림</h2>
+                <p>
+                  설정한 날짜에 직원별 알림 발송 대기열을 생성합니다. 이메일은
+                  발송 환경 설정 시 자동 발송되고, 카카오·푸시는 채널 설정 후
+                  활성화됩니다.
+                </p>
+              </div>
+            </div>
+            <div className="settings-input-grid">
+              <label>
+                급여 알림일
+                <input
+                  type="number"
+                  min="1"
+                  max="31"
+                  value={form.payroll_notification_day}
+                  onChange={(event) =>
+                    setForm({
+                      ...form,
+                      payroll_notification_day: event.target.value,
+                    })
+                  }
+                />
+              </label>
+              <div className="notification-channel-options">
+                <label className="toggle-label">
+                  <input
+                    type="checkbox"
+                    checked={form.payroll_notification_email_enabled}
+                    onChange={(event) =>
+                      setForm({
+                        ...form,
+                        payroll_notification_email_enabled:
+                          event.target.checked,
+                      })
+                    }
+                  />
+                  <span>
+                    <i />
+                  </span>
+                  <b>이메일</b>
+                </label>
+                <label className="toggle-label">
+                  <input
+                    type="checkbox"
+                    checked={form.payroll_notification_kakao_enabled}
+                    onChange={(event) =>
+                      setForm({
+                        ...form,
+                        payroll_notification_kakao_enabled:
+                          event.target.checked,
+                      })
+                    }
+                  />
+                  <span>
+                    <i />
+                  </span>
+                  <b>카카오 알림톡</b>
+                </label>
+                <label className="toggle-label">
+                  <input
+                    type="checkbox"
+                    checked={form.payroll_notification_push_enabled}
+                    onChange={(event) =>
+                      setForm({
+                        ...form,
+                        payroll_notification_push_enabled: event.target.checked,
+                      })
+                    }
+                  />
+                  <span>
+                    <i />
+                  </span>
+                  <b>푸시 알림</b>
+                </label>
+              </div>
+            </div>
+            <p className="settings-help">
+              급여일이 없는 달(예: 31일)은 해당 월의 마지막 날에 발송하도록 다음
+              단계에서 확장할 수 있습니다. 현재는 매일 오전 10시(KST) 발송
+              대기열을 검사합니다.
+            </p>
+          </section>
+          <button className="submit settings-save" disabled={busy}>
+            {busy ? "저장 중…" : "급여 설정 저장"}
+          </button>
+        </form>
+      )}
+      {message && (
+        <NoticeModal
+          message={message}
+          tone={/못|오류/.test(message) ? "error" : "success"}
+          onClose={() => setMessage("")}
+        />
+      )}
+    </section>
+  );
 }
 
 function OperationalAlertPanel({ organizationId, onNavigate }) {
-  const [alerts, setAlerts] = useState([]); const [loading, setLoading] = useState(true);
-  const refresh = () => { if (!organizationId) return; setLoading(true); loadOperationalAlerts(organizationId).then(setAlerts).catch(() => setAlerts([])).finally(() => setLoading(false)); };
-  useEffect(() => { refresh(); }, [organizationId]);
-  const markRead = async alert => { try { await markOperationalAlertRead(alert.id); setAlerts(items => items.map(item => item.id === alert.id ? { ...item, status: 'read', read_at: new Date().toISOString() } : item)); } catch (_) {} };
-  const pending = alerts.filter(alert => ['queued', 'sent'].includes(alert.status));
-  return <section className="card full-card"><div className="card-title"><div><h2>미출근 알림</h2><p>스케줄 시작 후 출근 기록이 없는 직원을 알려드려요.</p></div><button onClick={() => onNavigate('attendance')}>출퇴근 관리</button></div>{loading ? <LoadingBar label="미출근 알림을 확인하는 중…"/> : pending.length ? pending.slice(0, 5).map(alert => <div className="salary-row" key={alert.id}><span className="grow"><b>{alert.timefit_user_staff?.account?.display_name || alert.timefit_user_staff?.display_name || '직원'}님 미출근</b><small>{alert.message}<br/>{new Date(alert.scheduled_for).toLocaleString('ko-KR')} 기준</small></span><Chip type="orange">확인 필요</Chip><button className="outline" onClick={() => markRead(alert)}>확인 완료</button></div>) : <div className="empty-schedule"><b>현재 확인할 미출근 알림이 없어요.</b><span>운영 설정의 지연 시간 이후 자동으로 감지됩니다.</span></div>}</section>;
+  const [alerts, setAlerts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const refresh = () => {
+    if (!organizationId) return;
+    setLoading(true);
+    loadOperationalAlerts(organizationId)
+      .then(setAlerts)
+      .catch(() => setAlerts([]))
+      .finally(() => setLoading(false));
+  };
+  useEffect(() => {
+    refresh();
+  }, [organizationId]);
+  const markRead = async (alert) => {
+    try {
+      await markOperationalAlertRead(alert.id);
+      setAlerts((items) =>
+        items.map((item) =>
+          item.id === alert.id
+            ? { ...item, status: "read", read_at: new Date().toISOString() }
+            : item,
+        ),
+      );
+    } catch (_) {}
+  };
+  const pending = alerts.filter((alert) =>
+    ["queued", "sent"].includes(alert.status),
+  );
+  return (
+    <section className="card full-card">
+      <div className="card-title">
+        <div>
+          <h2>미출근 알림</h2>
+          <p>스케줄 시작 후 출근 기록이 없는 직원을 알려드려요.</p>
+        </div>
+        <button onClick={() => onNavigate("attendance")}>출퇴근 관리</button>
+      </div>
+      {loading ? (
+        <LoadingBar label="미출근 알림을 확인하는 중…" />
+      ) : pending.length ? (
+        pending.slice(0, 5).map((alert) => (
+          <div className="salary-row" key={alert.id}>
+            <span className="grow">
+              <b>
+                {alert.timefit_user_staff?.account?.display_name ||
+                  alert.timefit_user_staff?.display_name ||
+                  "직원"}
+                님 미출근
+              </b>
+              <small>
+                {alert.message}
+                <br />
+                {new Date(alert.scheduled_for).toLocaleString("ko-KR")} 기준
+              </small>
+            </span>
+            <Chip type="orange">확인 필요</Chip>
+            <button className="outline" onClick={() => markRead(alert)}>
+              확인 완료
+            </button>
+          </div>
+        ))
+      ) : (
+        <div className="empty-schedule">
+          <b>현재 확인할 미출근 알림이 없어요.</b>
+          <span>운영 설정의 지연 시간 이후 자동으로 감지됩니다.</span>
+        </div>
+      )}
+    </section>
+  );
 }
 
 function ManagerGroupTabs({ groupId, onChange, groups = managerMenuGroups }) {
-  return <nav className="manager-menu-groups" aria-label="관리자 대메뉴">{groups.map(group => <button key={group.id} className={groupId === group.id ? 'active' : ''} onClick={() => onChange(group)}>{group.label}</button>)}</nav>;
+  return (
+    <nav className="manager-menu-groups" aria-label="관리자 대메뉴">
+      {groups.map((group) => (
+        <button
+          key={group.id}
+          className={groupId === group.id ? "active" : ""}
+          onClick={() => onChange(group)}
+        >
+          {group.label}
+        </button>
+      ))}
+    </nav>
+  );
 }
 
-const CATEGORY_COLORS = ['#3182F6', '#00A86B', '#8B5CF6', '#F97316', '#E65F5C', '#0EA5E9'];
+const CATEGORY_COLORS = [
+  "#3182F6",
+  "#00A86B",
+  "#8B5CF6",
+  "#F97316",
+  "#E65F5C",
+  "#0EA5E9",
+];
 
 function StaffCategorySettings({ organizationId, onSaved }) {
-  const [categories, setCategories] = useState([]); const [name, setName] = useState(''); const [color, setColor] = useState(CATEGORY_COLORS[0]); const [busy, setBusy] = useState(false); const [message, setMessage] = useState('');
-  const refresh = () => { if (!organizationId) return; loadStaffCategories(organizationId).then(setCategories).catch(error => setMessage(error.message || '직원 구분을 불러오지 못했습니다.')); };
-  useEffect(() => { refresh(); }, [organizationId]);
-  const add = async event => { event.preventDefault(); if (!name.trim()) return; setBusy(true); try { await saveStaffCategory({ organizationId, name, color, sortOrder: categories.length + 1 }); setName(''); await refresh(); await onSaved?.(); setMessage('직원 구분을 추가했어요.'); } catch (error) { setMessage(error.message?.includes('duplicate') ? '같은 이름의 구분이 이미 있어요.' : error.message || '직원 구분을 저장하지 못했습니다.'); } finally { setBusy(false); } };
-  const remove = async category => { if (category.name === '미분류') return setMessage('미분류 구분은 삭제할 수 없어요.'); if (!window.confirm(`“${category.name}” 구분을 삭제할까요? 해당 직원은 미분류로 표시됩니다.`)) return; setBusy(true); try { await deleteStaffCategory(category.id); await refresh(); await onSaved?.(); setMessage('직원 구분을 삭제했어요.'); } catch (error) { setMessage(error.message || '사용 중인 직원 구분을 삭제하지 못했습니다.'); } finally { setBusy(false); } };
-  return <section className="card settings-card staff-category-settings"><section className="settings-section"><div className="settings-section-head"><span className="settings-icon">◉</span><div><h2>직원 구분 관리</h2><p>예: 홀, 주방, 바. 등록한 구분은 직원 등록·직원 관리·스케줄 인원 집계에 같은 색으로 표시됩니다.</p></div></div><div className="category-preview-row">{categories.map(category => <span className="staff-category-chip" key={category.id} style={{ '--category-color': category.color }}><i/>{category.name}<button type="button" aria-label={`${category.name} 삭제`} disabled={busy || category.name === '미분류'} onClick={() => remove(category)}>×</button></span>)}</div><form className="category-create-form" onSubmit={add}><label>새 구분<input value={name} onChange={event => setName(event.target.value)} maxLength="30" placeholder="예: 주방" required/></label><div className="category-color-picker">{CATEGORY_COLORS.map(value => <button key={value} type="button" aria-label={`${value} 색상`} className={color === value ? 'selected' : ''} style={{ background: value }} onClick={() => setColor(value)}/>)}</div><button className="outline" disabled={busy}>{busy ? '추가 중…' : '구분 추가'}</button></form><p className="settings-help">구분을 삭제하면 해당 직원은 “미분류”로 안전하게 이동합니다.</p></section>{message && <NoticeModal message={message} tone={/못|없어요/.test(message) ? 'error' : 'success'} onClose={() => setMessage('')}/>}</section>;
+  const [categories, setCategories] = useState([]);
+  const [name, setName] = useState("");
+  const [color, setColor] = useState(CATEGORY_COLORS[0]);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const refresh = () => {
+    if (!organizationId) return;
+    loadStaffCategories(organizationId)
+      .then(setCategories)
+      .catch((error) =>
+        setMessage(error.message || "직원 구분을 불러오지 못했습니다."),
+      );
+  };
+  useEffect(() => {
+    refresh();
+  }, [organizationId]);
+  const add = async (event) => {
+    event.preventDefault();
+    if (!name.trim()) return;
+    setBusy(true);
+    try {
+      await saveStaffCategory({
+        organizationId,
+        name,
+        color,
+        sortOrder: categories.length + 1,
+      });
+      setName("");
+      await refresh();
+      await onSaved?.();
+      setMessage("직원 구분을 추가했어요.");
+    } catch (error) {
+      setMessage(
+        error.message?.includes("duplicate")
+          ? "같은 이름의 구분이 이미 있어요."
+          : error.message || "직원 구분을 저장하지 못했습니다.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+  const remove = async (category) => {
+    if (category.name === "미분류")
+      return setMessage("미분류 구분은 삭제할 수 없어요.");
+    if (
+      !window.confirm(
+        `“${category.name}” 구분을 삭제할까요? 해당 직원은 미분류로 표시됩니다.`,
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      await deleteStaffCategory(category.id);
+      await refresh();
+      await onSaved?.();
+      setMessage("직원 구분을 삭제했어요.");
+    } catch (error) {
+      setMessage(error.message || "사용 중인 직원 구분을 삭제하지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="card settings-card staff-category-settings">
+      <section className="settings-section">
+        <div className="settings-section-head">
+          <span className="settings-icon">◉</span>
+          <div>
+            <h2>직원 구분 관리</h2>
+            <p>
+              예: 홀, 주방, 바. 등록한 구분은 직원 등록·직원 관리·스케줄 인원
+              집계에 같은 색으로 표시됩니다.
+            </p>
+          </div>
+        </div>
+        <div className="category-preview-row">
+          {categories.map((category) => (
+            <span
+              className="staff-category-chip"
+              key={category.id}
+              style={{ "--category-color": category.color }}
+            >
+              <i />
+              {category.name}
+              <button
+                type="button"
+                aria-label={`${category.name} 삭제`}
+                disabled={busy || category.name === "미분류"}
+                onClick={() => remove(category)}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+        <form className="category-create-form" onSubmit={add}>
+          <label>
+            새 구분
+            <input
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              maxLength="30"
+              placeholder="예: 주방"
+              required
+            />
+          </label>
+          <div className="category-color-picker">
+            {CATEGORY_COLORS.map((value) => (
+              <button
+                key={value}
+                type="button"
+                aria-label={`${value} 색상`}
+                className={color === value ? "selected" : ""}
+                style={{ background: value }}
+                onClick={() => setColor(value)}
+              />
+            ))}
+          </div>
+          <button className="outline" disabled={busy}>
+            {busy ? "추가 중…" : "구분 추가"}
+          </button>
+        </form>
+        <p className="settings-help">
+          구분을 삭제하면 해당 직원은 “미분류”로 안전하게 이동합니다.
+        </p>
+      </section>
+      {message && (
+        <NoticeModal
+          message={message}
+          tone={/못|없어요/.test(message) ? "error" : "success"}
+          onClose={() => setMessage("")}
+        />
+      )}
+    </section>
+  );
 }
 
 function CostCenterSettings({ organizationId }) {
-  const [centers,setCenters]=useState([]); const [busy,setBusy]=useState(false); const [message,setMessage]=useState('');
-  const refresh=()=>loadCostCenters(organizationId).then(setCenters).catch(error=>setMessage(error.message||'부서·섹션을 불러오지 못했습니다.'));
-  useEffect(()=>{if(organizationId)refresh();},[organizationId]);
-  const departments=centers.filter(center=>center.center_type==='department');
-  const submit=async event=>{event.preventDefault();const form=new FormData(event.currentTarget);setBusy(true);try{await saveCostCenter({organizationId,centerType:form.get('centerType'),parentId:form.get('parentId')||null,name:form.get('name'),code:form.get('code'),sortOrder:centers.length+1});event.currentTarget.reset();await refresh();setMessage('부서·섹션을 추가했어요.');}catch(error){setMessage(error.message||'부서·섹션을 저장하지 못했습니다.');}finally{setBusy(false);}};
-  const archive=async center=>{if(!window.confirm(`${center.name}을(를) 보관 처리할까요? 기존 영수증에는 이름이 유지됩니다.`))return;setBusy(true);try{await archiveCostCenter(center.id);await refresh();setMessage('부서·섹션을 보관했어요.');}catch(error){setMessage(error.message||'하위 섹션이나 사용 중인 데이터가 있어 보관하지 못했습니다.');}finally{setBusy(false);}};
-  return <section className="card settings-card"><section className="settings-section"><div className="settings-section-head"><span className="settings-icon">▤</span><div><h2>지출 부서·섹션</h2><p>영수증 제출과 관리자 검수 범위를 나누는 비용 귀속 단위입니다.</p></div></div><div className="cost-center-tree">{departments.map(department=><article key={department.id}><div><b>{department.name}</b><small>{department.code||'부서'}</small><button type="button" onClick={()=>archive(department)} disabled={busy}>보관</button></div>{centers.filter(center=>center.parent_id===department.id).map(section=><span key={section.id}><span>↳ {section.name}</span><button type="button" onClick={()=>archive(section)} disabled={busy}>보관</button></span>)}</article>)}</div><form className="cost-center-create" onSubmit={submit}><label>유형<select name="centerType" defaultValue="department" onChange={event=>{const parent=event.currentTarget.form.elements.parentId;parent.disabled=event.target.value==='department';if(parent.disabled)parent.value='';}}><option value="department">부서</option><option value="section">섹션</option></select></label><label>상위 부서<select name="parentId" disabled defaultValue=""><option value="">선택</option>{departments.map(department=><option key={department.id} value={department.id}>{department.name}</option>)}</select></label><label>이름<input name="name" required maxLength="80" placeholder="예: 주방 / 베이커리"/></label><label>관리 코드<input name="code" maxLength="40" placeholder="선택"/></label><button className="outline" disabled={busy}>{busy?'저장 중…':'+ 추가'}</button></form></section>{message&&<NoticeModal message={message} tone={/못|오류/.test(message)?'error':'success'} onClose={()=>setMessage('')}/>}</section>;
+  const [centers, setCenters] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const refresh = () =>
+    loadCostCenters(organizationId)
+      .then(setCenters)
+      .catch((error) =>
+        setMessage(error.message || "부서·섹션을 불러오지 못했습니다."),
+      );
+  useEffect(() => {
+    if (organizationId) refresh();
+  }, [organizationId]);
+  const departments = centers.filter(
+    (center) => center.center_type === "department",
+  );
+  const submit = async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    setBusy(true);
+    try {
+      await saveCostCenter({
+        organizationId,
+        centerType: form.get("centerType"),
+        parentId: form.get("parentId") || null,
+        name: form.get("name"),
+        code: form.get("code"),
+        sortOrder: centers.length + 1,
+      });
+      event.currentTarget.reset();
+      await refresh();
+      setMessage("부서·섹션을 추가했어요.");
+    } catch (error) {
+      setMessage(error.message || "부서·섹션을 저장하지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const archive = async (center) => {
+    if (
+      !window.confirm(
+        `${center.name}을(를) 보관 처리할까요? 기존 영수증에는 이름이 유지됩니다.`,
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      await archiveCostCenter(center.id);
+      await refresh();
+      setMessage("부서·섹션을 보관했어요.");
+    } catch (error) {
+      setMessage(
+        error.message ||
+          "하위 섹션이나 사용 중인 데이터가 있어 보관하지 못했습니다.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="card settings-card">
+      <section className="settings-section">
+        <div className="settings-section-head">
+          <span className="settings-icon">▤</span>
+          <div>
+            <h2>지출 부서·섹션</h2>
+            <p>영수증 제출과 관리자 검수 범위를 나누는 비용 귀속 단위입니다.</p>
+          </div>
+        </div>
+        <div className="cost-center-tree">
+          {departments.map((department) => (
+            <article key={department.id}>
+              <div>
+                <b>{department.name}</b>
+                <small>{department.code || "부서"}</small>
+                <button
+                  type="button"
+                  onClick={() => archive(department)}
+                  disabled={busy}
+                >
+                  보관
+                </button>
+              </div>
+              {centers
+                .filter((center) => center.parent_id === department.id)
+                .map((section) => (
+                  <span key={section.id}>
+                    <span>↳ {section.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => archive(section)}
+                      disabled={busy}
+                    >
+                      보관
+                    </button>
+                  </span>
+                ))}
+            </article>
+          ))}
+        </div>
+        <form className="cost-center-create" onSubmit={submit}>
+          <label>
+            유형
+            <select
+              name="centerType"
+              defaultValue="department"
+              onChange={(event) => {
+                const parent = event.currentTarget.form.elements.parentId;
+                parent.disabled = event.target.value === "department";
+                if (parent.disabled) parent.value = "";
+              }}
+            >
+              <option value="department">부서</option>
+              <option value="section">섹션</option>
+            </select>
+          </label>
+          <label>
+            상위 부서
+            <select name="parentId" disabled defaultValue="">
+              <option value="">선택</option>
+              {departments.map((department) => (
+                <option key={department.id} value={department.id}>
+                  {department.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            이름
+            <input
+              name="name"
+              required
+              maxLength="80"
+              placeholder="예: 주방 / 베이커리"
+            />
+          </label>
+          <label>
+            관리 코드
+            <input name="code" maxLength="40" placeholder="선택" />
+          </label>
+          <button className="outline" disabled={busy}>
+            {busy ? "저장 중…" : "+ 추가"}
+          </button>
+        </form>
+      </section>
+      {message && (
+        <NoticeModal
+          message={message}
+          tone={/못|오류/.test(message) ? "error" : "success"}
+          onClose={() => setMessage("")}
+        />
+      )}
+    </section>
+  );
 }
 
-function StaffCategorySelect({ organizationId, name = 'categoryId', disabled = false, defaultValue = '', allowedCategoryIds = null }) {
+function StaffCategorySelect({
+  organizationId,
+  name = "categoryId",
+  disabled = false,
+  defaultValue = "",
+  allowedCategoryIds = null,
+}) {
   const [categories, setCategories] = useState([]);
-  const [value, setValue] = useState(defaultValue || '');
+  const [value, setValue] = useState(defaultValue || "");
   // The options are loaded asynchronously. Keep the selected id controlled so
   // an employee's saved category is restored after those options arrive.
-  useEffect(() => { setValue(defaultValue || ''); }, [defaultValue, organizationId]);
-  useEffect(() => { if (organizationId) loadStaffCategories(organizationId).then(setCategories).catch(() => setCategories([])); }, [organizationId]);
-  const visibleCategories = categories.filter(category => category.name !== '미분류' && (!allowedCategoryIds?.length || allowedCategoryIds.includes(category.id)));
-  return <select name={name} value={value} onChange={event => setValue(event.target.value)} disabled={disabled}>{!allowedCategoryIds?.length && <option value="">미분류</option>}{allowedCategoryIds?.length && !value && <option value="" disabled>담당 구분 선택</option>}{visibleCategories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}</select>;
+  useEffect(() => {
+    setValue(defaultValue || "");
+  }, [defaultValue, organizationId]);
+  useEffect(() => {
+    if (organizationId)
+      loadStaffCategories(organizationId)
+        .then(setCategories)
+        .catch(() => setCategories([]));
+  }, [organizationId]);
+  const visibleCategories = categories.filter(
+    (category) =>
+      category.name !== "미분류" &&
+      (!allowedCategoryIds?.length || allowedCategoryIds.includes(category.id)),
+  );
+  return (
+    <select
+      name={name}
+      value={value}
+      onChange={(event) => setValue(event.target.value)}
+      disabled={disabled}
+    >
+      {!allowedCategoryIds?.length && <option value="">미분류</option>}
+      {allowedCategoryIds?.length && !value && (
+        <option value="" disabled>
+          담당 구분 선택
+        </option>
+      )}
+      {visibleCategories.map((category) => (
+        <option key={category.id} value={category.id}>
+          {category.name}
+        </option>
+      ))}
+    </select>
+  );
 }
 
-function ScheduleCategorySummary({ employees, scheduleByDate, onSelect, onEdit = schedule => onSelect?.({ __scheduleEdit: schedule }), canManage = true }) {
+function ScheduleCategorySummary({
+  employees,
+  scheduleByDate,
+  onSelect,
+  onEdit = (schedule) => onSelect?.({ __scheduleEdit: schedule }),
+  canManage = true,
+}) {
   const [selectedDate, setSelectedDate] = useState(null);
   const [calendarMonth, setCalendarMonth] = useState(todayKey.slice(0, 7));
   const categoryRows = useMemo(() => {
@@ -401,85 +2679,498 @@ function ScheduleCategorySummary({ employees, scheduleByDate, onSelect, onEdit =
     Object.entries(scheduleByDate || {}).forEach(([date, entries]) => {
       if (!date.startsWith(calendarMonth)) return;
       entries.forEach(([, time, , , staffId, categoryName, categoryColor]) => {
-        if (time === '휴무' || time === '연차') return;
-        const staff = employees.find(item => item.id === staffId);
-        const name = categoryName || staff?.team || '미분류'; const color = categoryColor || staff?.categoryColor || '#8B95A1';
-        const current = totals.get(name) || { name, color, count: 0, keys: new Set() }; const key = `${date}:${staffId || name}`;
-        if (!current.keys.has(key)) { current.keys.add(key); current.count += 1; } totals.set(name, current);
+        if (time === "휴무" || time === "연차") return;
+        const staff = employees.find((item) => item.id === staffId);
+        const name = categoryName || staff?.team || "미분류";
+        const color = categoryColor || staff?.categoryColor || "#8B95A1";
+        const current = totals.get(name) || {
+          name,
+          color,
+          count: 0,
+          keys: new Set(),
+        };
+        const key = `${date}:${staffId || name}`;
+        if (!current.keys.has(key)) {
+          current.keys.add(key);
+          current.count += 1;
+        }
+        totals.set(name, current);
       });
     });
-    return [...totals.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+    return [...totals.values()].sort(
+      (a, b) => b.count - a.count || a.name.localeCompare(b.name),
+    );
   }, [employees, scheduleByDate, calendarMonth]);
-  const categoryCountsForDay = date => {
+  const categoryCountsForDay = (date) => {
     const totals = new Map();
-    (scheduleByDate[date] || []).forEach(([, time, , , staffId, categoryName, categoryColor]) => {
-      if (time === '휴무' || time === '연차') return;
-      const staff = employees.find(item => item.id === staffId); const name = categoryName || staff?.team || '미분류'; const color = categoryColor || staff?.categoryColor || '#8B95A1';
-      const current = totals.get(name) || { name, color, count: 0 }; current.count += 1; totals.set(name, current);
-    });
+    (scheduleByDate[date] || []).forEach(
+      ([, time, , , staffId, categoryName, categoryColor]) => {
+        if (time === "휴무" || time === "연차") return;
+        const staff = employees.find((item) => item.id === staffId);
+        const name = categoryName || staff?.team || "미분류";
+        const color = categoryColor || staff?.categoryColor || "#8B95A1";
+        const current = totals.get(name) || { name, color, count: 0 };
+        current.count += 1;
+        totals.set(name, current);
+      },
+    );
     return [...totals.values()];
   };
-  const staffForDay = date => (scheduleByDate[date] || [])
-    .filter(([, time]) => time !== '휴무' && time !== '연차')
-    .map(([name, , , , staffId, categoryName]) => employees.find(item => staffId ? item.id === staffId : item.name === name) || { id: staffId || name, name, team: categoryName || '미분류' });
+  const staffForDay = (date) =>
+    (scheduleByDate[date] || [])
+      .filter(([, time]) => time !== "휴무" && time !== "연차")
+      .map(
+        ([name, , , , staffId, categoryName]) =>
+          employees.find((item) =>
+            staffId ? item.id === staffId : item.name === name,
+          ) || { id: staffId || name, name, team: categoryName || "미분류" },
+      );
   const cells = monthDaysFor(calendarMonth);
-  const selectedEntries = selectedDate ? (scheduleByDate[selectedDate] || []) : [];
+  const selectedEntries = selectedDate
+    ? scheduleByDate[selectedDate] || []
+    : [];
   useEffect(() => {
-    const heading = document.querySelector('.schedule-category-heading');
+    const heading = document.querySelector(".schedule-category-heading");
     if (!heading) return;
-    const previous = heading.querySelector('.schedule-month-picker');
+    const previous = heading.querySelector(".schedule-month-picker");
     if (previous) previous.remove();
-    const picker = document.createElement('div');
-    picker.className = 'schedule-month-picker';
-    const move = offset => {
-      const [year, month] = calendarMonth.split('-').map(Number);
+    const picker = document.createElement("div");
+    picker.className = "schedule-month-picker";
+    const move = (offset) => {
+      const [year, month] = calendarMonth.split("-").map(Number);
       const next = new Date(year, month - 1 + offset, 1, 12);
       setCalendarMonth(formatDateKey(next).slice(0, 7));
       setSelectedDate(null);
     };
-    const prev = document.createElement('button'); prev.type = 'button'; prev.setAttribute('aria-label', '이전 달'); prev.textContent = '‹'; prev.onclick = () => move(-1);
-    const input = document.createElement('input'); input.type = 'month'; input.value = calendarMonth; input.setAttribute('aria-label', '스케줄 연월 선택'); input.onchange = event => { if (event.target.value) { setCalendarMonth(event.target.value); setSelectedDate(null); } };
-    const next = document.createElement('button'); next.type = 'button'; next.setAttribute('aria-label', '다음 달'); next.textContent = '›'; next.onclick = () => move(1);
-    const current = document.createElement('button'); current.type = 'button'; current.className = 'today-button'; current.textContent = '이번 달'; current.disabled = calendarMonth === todayKey.slice(0, 7); current.onclick = () => { setCalendarMonth(todayKey.slice(0, 7)); setSelectedDate(null); };
+    const prev = document.createElement("button");
+    prev.type = "button";
+    prev.setAttribute("aria-label", "이전 달");
+    prev.textContent = "‹";
+    prev.onclick = () => move(-1);
+    const input = document.createElement("input");
+    input.type = "month";
+    input.value = calendarMonth;
+    input.setAttribute("aria-label", "스케줄 연월 선택");
+    input.onchange = (event) => {
+      if (event.target.value) {
+        setCalendarMonth(event.target.value);
+        setSelectedDate(null);
+      }
+    };
+    const next = document.createElement("button");
+    next.type = "button";
+    next.setAttribute("aria-label", "다음 달");
+    next.textContent = "›";
+    next.onclick = () => move(1);
+    const current = document.createElement("button");
+    current.type = "button";
+    current.className = "today-button";
+    current.textContent = "이번 달";
+    current.disabled = calendarMonth === todayKey.slice(0, 7);
+    current.onclick = () => {
+      setCalendarMonth(todayKey.slice(0, 7));
+      setSelectedDate(null);
+    };
     picker.append(prev, input, next, current);
     heading.appendChild(picker);
     return () => picker.remove();
   }, [calendarMonth]);
-  return <><section className="schedule-category-overview" aria-label="월간 근무자 배정 현황"><div className="schedule-category-heading"><div><b>월간 근무자 현황</b><span>날짜별 소속과 근무자 이름을 확인하고 일정을 수정·취소할 수 있습니다.</span></div><div className="schedule-category-totals">{categoryRows.length ? <small>이번 달 총 {categoryRows.reduce((sum, item) => sum + item.count, 0)}건 배정</small> : <small>등록된 근무 일정이 없어요.</small>}</div></div><div className="category-calendar-mini">{KOREAN_WEEKDAYS.map(day => <b key={day}>{day}</b>)}{cells.map(cell => { const staff = cell.inMonth ? staffForDay(cell.id) : []; return cell.inMonth ? <button type="button" className={cell.id === todayKey ? 'today' : ''} key={cell.id} onClick={() => setSelectedDate(cell.id)} aria-label={`${formatKoreanDate(cell.id)} 일정 상세 보기`}><strong>{cell.day}</strong>{staff.slice(0, 3).map(person => <span className="calendar-staff-name" key={person.id}><em>{person.team || '미분류'}</em>{person.name}</span>)}{staff.length > 3 && <small>외 {staff.length - 3}명</small>}{!staff.length && <small>일정 보기</small>}</button> : <div className="outside" key={cell.id}><strong>{cell.day}</strong></div>; })}</div></section>{selectedDate && <Modal title={`${formatKoreanDate(selectedDate)} 근무 일정`} onClose={() => setSelectedDate(null)}><p className="modal-text">{canManage ? '등록된 일정을 수정하거나 취소할 수 있어요.' : '등록된 근무자와 시간을 확인할 수 있어요.'}</p><div className="schedule-day-detail-list">{selectedEntries.length ? selectedEntries.map(([name, time, shiftName, id, staffId, categoryName, categoryColor, breakMinutes], index) => { const employee = employees.find(item => item.id === staffId || item.name === name); const category = categoryName || employee?.team || '미분류'; return <div className="schedule-day-detail-row" key={`${staffId || name}-${index}`}><button type="button" className="schedule-person-link" onClick={() => { setSelectedDate(null); onSelect?.(employee); }}><Avatar name={name} color={employee?.color || 'blue'}/><span className="grow"><b>{name}</b><small><i style={{ background: categoryColor || employee?.categoryColor || '#8B95A1' }}/>{category} · {shiftName || '일반 근무'}</small></span><strong>{time}</strong></button>{canManage && <button type="button" className="outline" onClick={() => { setSelectedDate(null); onEdit?.({ id, staffId: staffId || employee?.id, name, time, label: shiftName, date: selectedDate, breakMinutes: Number(breakMinutes) || 0 }); }}>수정·취소</button>}</div>; }) : <div className="empty-schedule"><b>등록된 근무가 없어요.</b><span>이 날짜에는 배정된 근무 일정이 없습니다.</span></div>}</div></Modal>}</>;
+  return (
+    <>
+      <section
+        className="schedule-category-overview"
+        aria-label="월간 근무자 배정 현황"
+      >
+        <div className="schedule-category-heading">
+          <div>
+            <b>월간 근무자 현황</b>
+            <span>
+              날짜별 소속과 근무자 이름을 확인하고 일정을 수정·취소할 수
+              있습니다.
+            </span>
+          </div>
+          <div className="schedule-category-totals">
+            {categoryRows.length ? (
+              <small>
+                이번 달 총{" "}
+                {categoryRows.reduce((sum, item) => sum + item.count, 0)}건 배정
+              </small>
+            ) : (
+              <small>등록된 근무 일정이 없어요.</small>
+            )}
+          </div>
+        </div>
+        <div className="category-calendar-mini">
+          {KOREAN_WEEKDAYS.map((day) => (
+            <b key={day}>{day}</b>
+          ))}
+          {cells.map((cell) => {
+            const staff = cell.inMonth ? staffForDay(cell.id) : [];
+            return cell.inMonth ? (
+              <button
+                type="button"
+                className={cell.id === todayKey ? "today" : ""}
+                key={cell.id}
+                onClick={() => setSelectedDate(cell.id)}
+                aria-label={`${formatKoreanDate(cell.id)} 일정 상세 보기`}
+              >
+                <strong>{cell.day}</strong>
+                {staff.slice(0, 3).map((person) => (
+                  <span className="calendar-staff-name" key={person.id}>
+                    <em>{person.team || "미분류"}</em>
+                    {person.name}
+                  </span>
+                ))}
+                {staff.length > 3 && <small>외 {staff.length - 3}명</small>}
+                {!staff.length && <small>일정 보기</small>}
+              </button>
+            ) : (
+              <div className="outside" key={cell.id}>
+                <strong>{cell.day}</strong>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+      {selectedDate && (
+        <Modal
+          title={`${formatKoreanDate(selectedDate)} 근무 일정`}
+          onClose={() => setSelectedDate(null)}
+        >
+          <p className="modal-text">
+            {canManage
+              ? "등록된 일정을 수정하거나 취소할 수 있어요."
+              : "등록된 근무자와 시간을 확인할 수 있어요."}
+          </p>
+          <div className="schedule-day-detail-list">
+            {selectedEntries.length ? (
+              selectedEntries.map(
+                (
+                  [
+                    name,
+                    time,
+                    shiftName,
+                    id,
+                    staffId,
+                    categoryName,
+                    categoryColor,
+                    breakMinutes,
+                  ],
+                  index,
+                ) => {
+                  const employee = employees.find(
+                    (item) => item.id === staffId || item.name === name,
+                  );
+                  const category = categoryName || employee?.team || "미분류";
+                  return (
+                    <div
+                      className="schedule-day-detail-row"
+                      key={`${staffId || name}-${index}`}
+                    >
+                      <button
+                        type="button"
+                        className="schedule-person-link"
+                        onClick={() => {
+                          setSelectedDate(null);
+                          onSelect?.(employee);
+                        }}
+                      >
+                        <Avatar name={name} color={employee?.color || "blue"} />
+                        <span className="grow">
+                          <b>{name}</b>
+                          <small>
+                            <i
+                              style={{
+                                background:
+                                  categoryColor ||
+                                  employee?.categoryColor ||
+                                  "#8B95A1",
+                              }}
+                            />
+                            {category} · {shiftName || "일반 근무"}
+                          </small>
+                        </span>
+                        <strong>{time}</strong>
+                      </button>
+                      {canManage && (
+                        <button
+                          type="button"
+                          className="outline"
+                          onClick={() => {
+                            setSelectedDate(null);
+                            onEdit?.({
+                              id,
+                              staffId: staffId || employee?.id,
+                              name,
+                              time,
+                              label: shiftName,
+                              date: selectedDate,
+                              breakMinutes: Number(breakMinutes) || 0,
+                            });
+                          }}
+                        >
+                          수정·취소
+                        </button>
+                      )}
+                    </div>
+                  );
+                },
+              )
+            ) : (
+              <div className="empty-schedule">
+                <b>등록된 근무가 없어요.</b>
+                <span>이 날짜에는 배정된 근무 일정이 없습니다.</span>
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
+    </>
+  );
 }
 
-function Dashboard({ employees, leaveRequests, schedules, setModal, onOpenLeave, onSelect, onNavigate, organizationId, accountId, canViewPayroll = false, canManageEmployees = false, canAttendance = false, canLeave = false, isOwner = false, canSchedule = false, dataError }) {
-  const todayScheduled = (schedules[todayKey] || []).filter(([, time,,,,,,, approval]) => time !== '휴무' && time !== '연차' && approval === 'approved');
-  const todayScheduledStaff = employees.filter(employee => todayScheduled.some(([name, , , , staffId]) => staffId ? staffId === employee.id : name === employee.name));
+function Dashboard({
+  employees,
+  leaveRequests,
+  schedules,
+  setModal,
+  onOpenLeave,
+  onSelect,
+  onNavigate,
+  organizationId,
+  accountId,
+  canViewPayroll = false,
+  canManageEmployees = false,
+  canAttendance = false,
+  canLeave = false,
+  isOwner = false,
+  canSchedule = false,
+  dataError,
+}) {
+  const todayScheduled = (schedules[todayKey] || []).filter(
+    ([, time, , , , , , , approval]) =>
+      time !== "휴무" && time !== "연차" && approval === "approved",
+  );
+  const todayScheduledStaff = employees.filter((employee) =>
+    todayScheduled.some(([name, , , , staffId]) =>
+      staffId ? staffId === employee.id : name === employee.name,
+    ),
+  );
   const weekDays = weekDaysFor(todayKey);
-  const weeklySummary = weekDays.map(day => {
+  const weeklySummary = weekDays.map((day) => {
     const shifts = schedules[day.id] || [];
-    const workingCount = shifts.filter(([, time,,,,,,, approval]) => time !== '휴무' && time !== '연차' && approval === 'approved').length;
-    const leaveCount = leaveRequests.filter(request => request.status !== '반려' && request.startsAt <= day.id && (request.endsAt || request.startsAt) >= day.id).length;
-    const scheduledStaff = shifts.filter(([, time,,,,,,, approval]) => time !== '휴무' && time !== '연차' && approval === 'approved').map(([name, , , , staffId]) => employees.find(employee => staffId ? employee.id === staffId : employee.name === name)).filter(Boolean);
+    const workingCount = shifts.filter(
+      ([, time, , , , , , , approval]) =>
+        time !== "휴무" && time !== "연차" && approval === "approved",
+    ).length;
+    const leaveCount = leaveRequests.filter(
+      (request) =>
+        request.status !== "반려" &&
+        request.startsAt <= day.id &&
+        (request.endsAt || request.startsAt) >= day.id,
+    ).length;
+    const scheduledStaff = shifts
+      .filter(
+        ([, time, , , , , , , approval]) =>
+          time !== "휴무" && time !== "연차" && approval === "approved",
+      )
+      .map(([name, , , , staffId]) =>
+        employees.find((employee) =>
+          staffId ? employee.id === staffId : employee.name === name,
+        ),
+      )
+      .filter(Boolean);
     return { ...day, workingCount, leaveCount, scheduledStaff, shifts };
   });
-  const checkedInCount = employees.filter(item => item.time !== '-').length;
-  const workingCount = employees.filter(item => item.state === '근무 중').length;
-  const lateCount = employees.filter(item => item.state === '지각').length;
-  const todayMissingCount = todayScheduledStaff.filter(item => item.time === '-').length;
-  const operationNeedsAttention = Boolean(dataError || lateCount || todayMissingCount);
-  return <>
-    <section className={`dashboard-command ${operationNeedsAttention ? 'needs-attention' : 'stable'}`} aria-labelledby="dashboard-command-title">
-      <div className="dashboard-command-copy"><p className="date-label">{today} · 오늘 운영</p><h1 id="dashboard-command-title">{dataError ? '일부 데이터를 다시 확인해 주세요' : operationNeedsAttention ? '오늘 확인할 운영 항목이 있어요' : '오늘 운영은 정상이에요'}</h1><p>{dataError ? '마지막 정상 기록을 표시하고 있습니다.' : `근무 중 ${workingCount}명 · 출근 기록 ${checkedInCount}명${lateCount ? ` · 지각 ${lateCount}명` : ''}${todayMissingCount ? ` · 미출근 확인 ${todayMissingCount}명` : ''}`}</p></div>
-      <div className="dashboard-command-actions">{canAttendance && <button className="outline" onClick={() => onNavigate('attendance')}>오늘 현황 보기</button>}{canManageEmployees && !employees.length && <button className="cta" onClick={() => setModal('employee')}>직원 등록하기 <span>→</span></button>}</div>
-      <div className="dashboard-command-facts" aria-label="오늘 운영 요약"><span><b>{workingCount}</b>근무 중</span><span><b>{todayScheduledStaff.length}</b>오늘 예정</span><span className={lateCount ? 'warning' : ''}><b>{lateCount}</b>지각</span><span className={todayMissingCount ? 'warning' : ''}><b>{todayMissingCount}</b>미출근 확인</span></div>
-    </section>
-    <OperationsHome dataError={dataError} employees={employees} leaves={leaveRequests} organizationId={organizationId} accountId={accountId} isOwner={isOwner} canAttendance={canAttendance} canLeave={canLeave} onNavigate={onNavigate}/>
-    <div className="dashboard-field-grid">
-    {canAttendance && <div className="ops-daily-attendance">
-      <section className="card live-card"><div className="card-title"><div><h2>오늘 출퇴근</h2><p>출근 기록 {employees.filter(item => item.time !== '-').length}명 · 근무 중 {employees.filter(item => item.state === '근무 중').length}명</p></div><button onClick={() => onNavigate('attendance')}>전체 보기</button></div>
-        <div className="attendance-list">{todayScheduledStaff.length ? todayScheduledStaff.slice(0, 4).map(item => <div className="attendance-row clickable-row" key={item.id} onClick={() => onSelect(item)}><Avatar name={item.name} color={item.color}/><div className="grow"><b><em className="staff-team-prefix">{item.team || '미분류'}</em>{item.name}</b><span>{item.role}</span></div><div className="time"><Chip type={item.state === '근무 중' ? 'green' : item.state === '지각' ? 'orange' : 'gray'}>{item.state}</Chip><b>{item.time}</b></div></div>) : <p className="empty-state">오늘 등록된 근무 일정이 없어요.</p>}</div>
+  const checkedInCount = employees.filter((item) => item.time !== "-").length;
+  const workingCount = employees.filter(
+    (item) => item.state === "근무 중",
+  ).length;
+  const lateCount = employees.filter((item) => item.state === "지각").length;
+  const todayMissingCount = todayScheduledStaff.filter(
+    (item) => item.time === "-",
+  ).length;
+  const operationNeedsAttention = Boolean(
+    dataError || lateCount || todayMissingCount,
+  );
+  return (
+    <>
+      <section
+        className={`dashboard-command ${operationNeedsAttention ? "needs-attention" : "stable"}`}
+        aria-labelledby="dashboard-command-title"
+      >
+        <div className="dashboard-command-copy">
+          <p className="date-label">{today} · 오늘 운영</p>
+          <h1 id="dashboard-command-title">
+            {dataError
+              ? "일부 데이터를 다시 확인해 주세요"
+              : operationNeedsAttention
+                ? "오늘 확인할 운영 항목이 있어요"
+                : "오늘 운영은 정상이에요"}
+          </h1>
+          <p>
+            {dataError
+              ? "마지막 정상 기록을 표시하고 있습니다."
+              : `근무 중 ${workingCount}명 · 출근 기록 ${checkedInCount}명${lateCount ? ` · 지각 ${lateCount}명` : ""}${todayMissingCount ? ` · 미출근 확인 ${todayMissingCount}명` : ""}`}
+          </p>
+        </div>
+        <div className="dashboard-command-actions">
+          {canAttendance && (
+            <button
+              className="outline"
+              onClick={() => onNavigate("attendance")}
+            >
+              오늘 현황 보기
+            </button>
+          )}
+          {canManageEmployees && !employees.length && (
+            <button className="cta" onClick={() => setModal("employee")}>
+              직원 등록하기 <span>→</span>
+            </button>
+          )}
+        </div>
+        <div className="dashboard-command-facts" aria-label="오늘 운영 요약">
+          <span>
+            <b>{workingCount}</b>근무 중
+          </span>
+          <span>
+            <b>{todayScheduledStaff.length}</b>오늘 예정
+          </span>
+          <span className={lateCount ? "warning" : ""}>
+            <b>{lateCount}</b>지각
+          </span>
+          <span className={todayMissingCount ? "warning" : ""}>
+            <b>{todayMissingCount}</b>미출근 확인
+          </span>
+        </div>
       </section>
-    </div>}
-    {canSchedule && <section className="card weekly dashboard-weekly"><div className="card-title"><div><h2>이번 주 스케줄</h2><p>{weekDays[0].day}일 ~ {weekDays[6].day}일 · 일별 예정 인원</p></div><button onClick={() => onNavigate('schedule')}>스케줄 관리</button></div><div className="week">{weeklySummary.map(day => <div className={day.id === todayKey ? 'selected-day' : ''} key={day.id}><b>{day.weekday} <small>{day.day}</small></b><strong>{day.workingCount}<small>명</small></strong><span>{day.scheduledStaff.slice(0, 2).map(employee => `[${employee.team || '미분류'}] ${employee.name}`).join(' · ') || '등록된 근무 없음'}</span>{day.scheduledStaff.length > 2 && <small className="week-more-count">외 {day.scheduledStaff.length - 2}명</small>}{day.leaveCount ? <small className="week-leave-count">휴가 {day.leaveCount}건</small> : null}</div>)}</div></section>}
-    </div>
-  </>;
+      <OperationsHome
+        dataError={dataError}
+        employees={employees}
+        leaves={leaveRequests}
+        organizationId={organizationId}
+        accountId={accountId}
+        isOwner={isOwner}
+        canAttendance={canAttendance}
+        canLeave={canLeave}
+        onNavigate={onNavigate}
+      />
+      <div className="dashboard-field-grid">
+        {canAttendance && (
+          <div className="ops-daily-attendance">
+            <section className="card live-card">
+              <div className="card-title">
+                <div>
+                  <h2>오늘 출퇴근</h2>
+                  <p>
+                    출근 기록{" "}
+                    {employees.filter((item) => item.time !== "-").length}명 ·
+                    근무 중{" "}
+                    {
+                      employees.filter((item) => item.state === "근무 중")
+                        .length
+                    }
+                    명
+                  </p>
+                </div>
+                <button onClick={() => onNavigate("attendance")}>
+                  전체 보기
+                </button>
+              </div>
+              <div className="attendance-list">
+                {todayScheduledStaff.length ? (
+                  todayScheduledStaff.slice(0, 4).map((item) => (
+                    <div
+                      className="attendance-row clickable-row"
+                      key={item.id}
+                      onClick={() => onSelect(item)}
+                    >
+                      <Avatar name={item.name} color={item.color} />
+                      <div className="grow">
+                        <b>
+                          <em className="staff-team-prefix">
+                            {item.team || "미분류"}
+                          </em>
+                          {item.name}
+                        </b>
+                        <span>{item.role}</span>
+                      </div>
+                      <div className="time">
+                        <Chip
+                          type={
+                            item.state === "근무 중"
+                              ? "green"
+                              : item.state === "지각"
+                                ? "orange"
+                                : "gray"
+                          }
+                        >
+                          {item.state}
+                        </Chip>
+                        <b>{item.time}</b>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="empty-state">오늘 등록된 근무 일정이 없어요.</p>
+                )}
+              </div>
+            </section>
+          </div>
+        )}
+        {canSchedule && (
+          <section className="card weekly dashboard-weekly">
+            <div className="card-title">
+              <div>
+                <h2>이번 주 스케줄</h2>
+                <p>
+                  {weekDays[0].day}일 ~ {weekDays[6].day}일 · 일별 예정 인원
+                </p>
+              </div>
+              <button onClick={() => onNavigate("schedule")}>
+                스케줄 관리
+              </button>
+            </div>
+            <div className="week">
+              {weeklySummary.map((day) => (
+                <div
+                  className={day.id === todayKey ? "selected-day" : ""}
+                  key={day.id}
+                >
+                  <b>
+                    {day.weekday} <small>{day.day}</small>
+                  </b>
+                  <strong>
+                    {day.workingCount}
+                    <small>명</small>
+                  </strong>
+                  <span>
+                    {day.scheduledStaff
+                      .slice(0, 2)
+                      .map(
+                        (employee) =>
+                          `[${employee.team || "미분류"}] ${employee.name}`,
+                      )
+                      .join(" · ") || "등록된 근무 없음"}
+                  </span>
+                  {day.scheduledStaff.length > 2 && (
+                    <small className="week-more-count">
+                      외 {day.scheduledStaff.length - 2}명
+                    </small>
+                  )}
+                  {day.leaveCount ? (
+                    <small className="week-leave-count">
+                      휴가 {day.leaveCount}건
+                    </small>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+      </div>
+    </>
+  );
 }
 
 function AttendanceQrDisplay({ organizationId, organizationName, onClose }) {

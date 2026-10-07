@@ -31,7 +31,7 @@ test('UIUX-02 records auditable scoped permission changes', () => {
 });
 
 test('UIUX-02 owner UI defaults to linking an existing employee', () => {
-  assert.match(ui, /useState\('link_existing'\)/);
+  assert.match(ui, /useState\(["']link_existing["']\)/);
   assert.match(ui, /기존 직원에게 권한 부여/);
   assert.match(ui, /직원 로그인 정보는 변경되지 않습니다/);
   assert.match(ui, /직원 계정과 근무 데이터는 유지됩니다/);
@@ -74,4 +74,14 @@ test('UIUX-02 hides privileged web actions without their matching permission', (
   assert.match(ui, /canCorrectAttendance/);
   assert.match(ui, /modal\?\.type === "scheduleEdit" && canManageSchedule/);
   assert.match(ui, /canManage=\{canManageSchedule\}/);
+});
+
+test('UIUX-02 offers least-privilege role presets and locks required view permissions', () => {
+  assert.match(ui, /store_manager/);
+  assert.match(ui, /part_lead/);
+  assert.match(ui, /accountant/);
+  assert.match(ui, /read_only/);
+  assert.match(ui, /requiredPermissions\(createPermissions\)\.has\(value\)/);
+  assert.match(ui, /상위 권한에 필수/);
+  assert.match(ui, /permissions: createPermissions/);
 });
