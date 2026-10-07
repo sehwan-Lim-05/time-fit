@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 const createAccount = readFileSync(new URL('../supabase/functions/create-management-account/index.ts', import.meta.url), 'utf8');
 const manageAccount = readFileSync(new URL('../supabase/functions/manage-management-account/index.ts', import.meta.url), 'utf8');
 const migration = readFileSync(new URL('../supabase/migrations/20261007000400_link_existing_employee_management.sql', import.meta.url), 'utf8');
+const compensationMigration = readFileSync(new URL('../supabase/migrations/20261007000500_split_employee_compensation_permissions.sql', import.meta.url), 'utf8');
 const ui = readFileSync(new URL('../src/main.jsx', import.meta.url), 'utf8');
 const userContext = readFileSync(new URL('../supabase/functions/get-user-context/index.ts', import.meta.url), 'utf8');
 
@@ -54,11 +55,11 @@ test('UIUX-02 keeps one canonical approval and attendance permission catalog', (
 
 test('UIUX-02 expands mutating permissions with their required view permission', () => {
   for (const source of [createAccount, manageAccount]) {
-    assert.match(source, /'attendance\.manage': 'attendance\.view'/);
-    assert.match(source, /'schedule\.approve': 'schedule\.view'/);
-    assert.match(source, /'leave\.review': 'leave\.view'/);
-    assert.match(source, /'sales\.sync': 'sales\.view'/);
-    assert.match(source, /'expense\.export': 'finance\.view'/);
+    assert.match(source, /'attendance\.manage': \['attendance\.view'\]/);
+    assert.match(source, /'schedule\.approve': \['schedule\.view'\]/);
+    assert.match(source, /'leave\.review': \['leave\.view'\]/);
+    assert.match(source, /'sales\.sync': \['sales\.view'\]/);
+    assert.match(source, /'expense\.export': \['finance\.view'\]/);
   }
 });
 
@@ -84,4 +85,15 @@ test('UIUX-02 offers least-privilege role presets and locks required view permis
   assert.match(ui, /requiredPermissions\(createPermissions\)\.has\(value\)/);
   assert.match(ui, /상위 권한에 필수/);
   assert.match(ui, /permissions: createPermissions/);
+});
+
+test('UIUX-03 separates employee compensation from payroll aggregate access', () => {
+  for (const source of [createAccount, manageAccount, migration, compensationMigration, ui]) {
+    assert.match(source, /employee\.compensation\.view/);
+    assert.match(source, /employee\.compensation\.manage/);
+  }
+  assert.match(createAccount, /'employee\.compensation\.manage': \['employee\.view', 'employee\.compensation\.view'\]/);
+  assert.match(manageAccount, /'employee\.compensation\.manage': \['employee\.view', 'employee\.compensation\.view'\]/);
+  assert.match(ui, /canViewCompensation/);
+  assert.match(ui, /canManageCompensation/);
 });

@@ -352,6 +352,8 @@ function ManagementAccountSettings({ organizationId, employees, isOwner }) {
     ["payroll.view", "급여·인건비 조회", "민감 정보"],
     ["employee.view", "직원 기본정보 조회", "프로필 열람"],
     ["employee.manage", "직원 등록·관리", "담당 구분 내 직접 등록"],
+    ["employee.compensation.view", "직원 보상정보 조회", "급여 형태·단가 열람"],
+    ["employee.compensation.manage", "직원 보상정보 관리", "급여 형태·단가 등록·수정"],
     ["sales.view", "매출 조회", "주간 매출·메뉴 분석"],
     ["sales.sync", "매출 동기화", "POS 내역 수집 실행"],
     ["finance.view", "지출·증빙 조회", "지출 원장·결산 열람"],
@@ -366,18 +368,23 @@ function ManagementAccountSettings({ organizationId, employees, isOwner }) {
     permissionOptions.map(([value, label]) => [value, label]),
   );
   const permissionDependencies = {
-    "attendance.manage": "attendance.view",
-    "attendance.review_correction": "attendance.view",
-    "schedule.manage": "schedule.view",
-    "schedule.approve": "schedule.view",
-    "leave.review": "leave.view",
-    "employee.manage": "employee.view",
-    "sales.sync": "sales.view",
-    "expense.manage": "finance.view",
-    "expense.receipt.review": "finance.view",
-    "expense.card.manage": "finance.view",
-    "expense.closeout.manage": "finance.view",
-    "expense.export": "finance.view",
+    "attendance.manage": ["attendance.view"],
+    "attendance.review_correction": ["attendance.view"],
+    "schedule.manage": ["schedule.view"],
+    "schedule.approve": ["schedule.view"],
+    "leave.review": ["leave.view"],
+    "employee.manage": ["employee.view"],
+    "employee.compensation.view": ["employee.view"],
+    "employee.compensation.manage": [
+      "employee.view",
+      "employee.compensation.view",
+    ],
+    "sales.sync": ["sales.view"],
+    "expense.manage": ["finance.view"],
+    "expense.receipt.review": ["finance.view"],
+    "expense.card.manage": ["finance.view"],
+    "expense.closeout.manage": ["finance.view"],
+    "expense.export": ["finance.view"],
   };
   const permissionPresets = {
     store_manager: [
@@ -420,12 +427,12 @@ function ManagementAccountSettings({ organizationId, employees, isOwner }) {
   const expandPermissions = (values) => [
     ...new Set([
       ...values,
-      ...values.map((value) => permissionDependencies[value]).filter(Boolean),
+      ...values.flatMap((value) => permissionDependencies[value] || []),
     ]),
   ];
   const requiredPermissions = (values) =>
     new Set(
-      values.map((value) => permissionDependencies[value]).filter(Boolean),
+      values.flatMap((value) => permissionDependencies[value] || []),
     );
   const togglePermission = (values, value) => {
     if (requiredPermissions(values).has(value)) return values;
@@ -9420,6 +9427,18 @@ function App() {
     authContext.isOrganizationOwner ||
       authContext.managementAccount?.permissions?.includes("payroll.view"),
   );
+  const canViewCompensation = Boolean(
+    authContext.isOrganizationOwner ||
+      authContext.managementAccount?.permissions?.includes(
+        "employee.compensation.view",
+      ),
+  );
+  const canManageCompensation = Boolean(
+    authContext.isOrganizationOwner ||
+      authContext.managementAccount?.permissions?.includes(
+        "employee.compensation.manage",
+      ),
+  );
   const canManageSchedule = Boolean(
     authContext.isOrganizationOwner ||
       authContext.managementAccount?.permissions?.includes("schedule.manage"),
@@ -9438,6 +9457,7 @@ function App() {
     authContext.isOrganizationOwner ||
       authContext.managementAccount?.permissions?.includes("employee.manage"),
   );
+  const canRegisterEmployees = canManageEmployees && canManageCompensation;
   const canViewSales = Boolean(
     authContext.isOrganizationOwner ||
       authContext.managementAccount?.permissions?.includes("sales.view"),
@@ -9479,8 +9499,8 @@ function App() {
         onNavigate={navigateManager}
         organizationId={authContext.membership?.organization_id}
         accountId={authContext.session?.user?.id}
-        canViewPayroll={canViewPayroll}
-        canManageEmployees={canManageEmployees}
+        canViewPayroll={canViewCompensation}
+        canManageEmployees={canRegisterEmployees}
         isOwner={Boolean(authContext.isOrganizationOwner)}
         canAttendance={Boolean(
           authContext.isOrganizationOwner ||
@@ -9649,8 +9669,8 @@ function App() {
           setModal={setModal}
           onSelect={openEmployeeDetail}
           canInvite={Boolean(authContext.isOrganizationOwner)}
-          canManage={canManageEmployees}
-          canViewPayroll={canViewPayroll}
+          canManage={canRegisterEmployees}
+          canViewPayroll={canViewCompensation}
         />
       </>
     ),
@@ -9700,7 +9720,7 @@ function App() {
         setModal={setModal}
         onNavigate={navigateManager}
         onRefresh={refreshWorkforceInPlace}
-        canViewPayroll={canViewPayroll}
+        canViewPayroll={canViewCompensation}
         canManageSchedule={canManageSchedule}
       />
     ),
@@ -10484,7 +10504,7 @@ function App() {
           onClose={() => setToast("")}
         />
       )}
-      {modal === "employee" && canManageEmployees && (
+      {modal === "employee" && canManageEmployees && canManageCompensation && (
         <Modal
           title="직원 직접 등록"
           onClose={() => {
@@ -10832,7 +10852,7 @@ function App() {
                     navigateManager(id);
                   }}
                   onRefresh={refreshWorkforceInPlace}
-                  canViewPayroll={canViewPayroll}
+                  canViewPayroll={canViewCompensation}
                   canManageSchedule={canManageSchedule}
                 />
                 {authContext.isOrganizationOwner && (

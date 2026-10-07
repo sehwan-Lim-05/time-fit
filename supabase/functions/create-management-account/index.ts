@@ -3,7 +3,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.49.4'
 const headers = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Content-Type': 'application/json' }
 const loginEmail = (loginId: string) => `${loginId.trim().toLowerCase().replace(/[^a-z0-9._-]/g, '')}@accounts.timefit.local`
 const permissionCodes = new Set([
-  'dashboard.view','attendance.view','attendance.manage','attendance.review_correction','schedule.view','schedule.manage','schedule.approve','leave.view','leave.review','payroll.view','employee.view','employee.manage',
+  'dashboard.view','attendance.view','attendance.manage','attendance.review_correction','schedule.view','schedule.manage','schedule.approve','leave.view','leave.review','payroll.view','employee.view','employee.manage','employee.compensation.view','employee.compensation.manage',
   'sales.view','sales.sync','settings.manage','finance.view','expense.manage','expense.receipt.review','expense.card.manage','expense.closeout.manage','expense.export',
 ])
 
@@ -22,15 +22,17 @@ Deno.serve(async request => {
     const displayName = String(body.displayName || '').trim()
     const roleCode = String(body.roleCode || '')
     const requestedPermissions = Array.isArray(body.permissions) ? body.permissions.map(String) : []
-    const dependencies: Record<string, string> = {
-      'attendance.manage': 'attendance.view', 'attendance.review_correction': 'attendance.view',
-      'schedule.manage': 'schedule.view', 'schedule.approve': 'schedule.view',
-      'leave.review': 'leave.view', 'employee.manage': 'employee.view',
-      'sales.sync': 'sales.view', 'expense.manage': 'finance.view',
-      'expense.receipt.review': 'finance.view', 'expense.card.manage': 'finance.view',
-      'expense.closeout.manage': 'finance.view', 'expense.export': 'finance.view',
+    const dependencies: Record<string, string[]> = {
+      'attendance.manage': ['attendance.view'], 'attendance.review_correction': ['attendance.view'],
+      'schedule.manage': ['schedule.view'], 'schedule.approve': ['schedule.view'],
+      'leave.review': ['leave.view'], 'employee.manage': ['employee.view'],
+      'employee.compensation.view': ['employee.view'],
+      'employee.compensation.manage': ['employee.view', 'employee.compensation.view'],
+      'sales.sync': ['sales.view'], 'expense.manage': ['finance.view'],
+      'expense.receipt.review': ['finance.view'], 'expense.card.manage': ['finance.view'],
+      'expense.closeout.manage': ['finance.view'], 'expense.export': ['finance.view'],
     }
-    const permissions = [...new Set([...requestedPermissions, ...requestedPermissions.map(code => dependencies[code]).filter(Boolean)])]
+    const permissions = [...new Set([...requestedPermissions, ...requestedPermissions.flatMap(code => dependencies[code] || [])])]
     const categoryIds = Array.isArray(body.categoryIds) ? body.categoryIds : []
     const costCenterIds = Array.isArray(body.costCenterIds) ? body.costCenterIds : []
     if (!organizationId || !['manager','executive_chef'].includes(roleCode) || permissions.some(code => !permissionCodes.has(code))) throw new Error('invalid_management_account_input')
