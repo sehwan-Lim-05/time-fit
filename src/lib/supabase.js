@@ -262,7 +262,7 @@ export async function manageManagementAccount(payload) {
 
 export async function loadManagementAccounts(organizationId) {
   const client = requireClient();
-  const { data, error } = await client.from('timefit_user_management_accounts').select('id,user_id,staff_id,login_id,role_code,status,force_password_change,created_at,timefit_user_management_permissions(permission_code,allowed),timefit_user_management_scopes(category_id),timefit_user_management_cost_center_scopes(cost_center_id)').eq('organization_id', organizationId).order('created_at', { ascending: false });
+  const { data, error } = await client.from('timefit_user_management_accounts').select('id,user_id,staff_id,login_id,role_code,status,account_origin,force_password_change,created_at,timefit_user_management_permissions(permission_code,allowed),timefit_user_management_scopes(category_id),timefit_user_management_cost_center_scopes(cost_center_id)').eq('organization_id', organizationId).order('created_at', { ascending: false });
   if (error) throw error; return data || [];
 }
 

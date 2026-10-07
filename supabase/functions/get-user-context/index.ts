@@ -16,7 +16,7 @@ Deno.serve(async (request) => {
     const { data: membership, error: membershipError } = await admin.from('timefit_user_memberships').select('organization_id, role').eq('user_id', userId).limit(1).maybeSingle()
     if (membershipError) throw membershipError
     const organization = membership ? (await admin.from('timefit_user_organizations').select('id, name, owner_id').eq('id', membership.organization_id).maybeSingle()).data : null
-    const managementAccount = membership ? (await admin.from('timefit_user_management_accounts').select('id,staff_id,login_id,role_code,status,force_password_change').eq('organization_id', membership.organization_id).eq('user_id', userId).maybeSingle()).data : null
+    const managementAccount = membership ? (await admin.from('timefit_user_management_accounts').select('id,staff_id,login_id,role_code,status,force_password_change').eq('organization_id', membership.organization_id).eq('user_id', userId).eq('status', 'active').maybeSingle()).data : null
     const permissions = managementAccount ? (await admin.from('timefit_user_management_permissions').select('permission_code').eq('management_account_id', managementAccount.id).eq('allowed', true)).data?.map(row => row.permission_code) || [] : []
     const categoryScopes = managementAccount ? (await admin.from('timefit_user_management_scopes').select('category_id').eq('management_account_id', managementAccount.id)).data?.map(row => row.category_id) || [] : []
     const { data: invitation, error: invitationError } = await admin.from('timefit_user_invitations').select('id, organization_id, status').eq('target_user_id', userId).eq('status', 'pending').limit(1).maybeSingle()
