@@ -10,6 +10,7 @@ import '../src/finance.css';
 import '../src/sheet.css';
 import '../src/auth.css';
 import '../src/staff-categories.css';
+import '../src/staffGrouping.css';
 import '../src/management-accounts.css';
 import '../src/attendance-management.css';
 import '../src/att01-qr-display.css';

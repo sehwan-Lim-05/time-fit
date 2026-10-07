@@ -11,6 +11,7 @@ import { openSchedulePrintView } from './schedulePdf';
 import { OperationsHome, WeeklyFeedback, AttendanceIssueList, CardReviewList } from './features/operations/OperationsFeedback';
 import { attendanceIssues, payrollAttendanceRange, staffTodayStatus } from '../shared/operations.js';
 import { invalidateViewCache, readViewCache, writeViewCache } from './lib/viewCache';
+import { groupStaffByType } from './lib/staffGrouping';
 import CardConnectionWizard from './features/finance/CardConnectionWizard';
 import FinanceReportDashboard from './features/finance/FinanceReportDashboard';
 import ExpenseExceptionInbox from './features/finance/ExpenseExceptionInbox';
@@ -7108,6 +7109,7 @@ function Employees({
   const visibleEmployees = employees.filter((employee) =>
     `${employee.name} ${employee.team} ${employee.role}`.includes(query.trim()),
   );
+  const employeeGroups = groupStaffByType(visibleEmployees);
   return (
     <>
       <div className="page-title">
@@ -7137,8 +7139,14 @@ function Employees({
             placeholder="이름, 부서, 직책으로 검색"
           />
         </div>
-        {visibleEmployees.length ? (
-          visibleEmployees.map((e) => (
+        {employeeGroups.length ? (
+          employeeGroups.map((group) => (
+            <section className="staff-type-group" key={group.type}>
+              <div className="staff-type-heading">
+                <b>{group.type}</b>
+                <span>{group.staff.length}명</span>
+              </div>
+              {group.staff.map((e) => (
             <div
               className="employee-row clickable-row"
               key={e.id}
@@ -7147,9 +7155,7 @@ function Employees({
               <Avatar name={e.name} color={e.color} />
               <span className="grow">
                 <b>{e.name}</b>
-                <small>
-                  {e.team} · {e.role}
-                </small>
+                <small>{e.role}</small>
               </span>
               {canViewPayroll && <span>{e.pay}</span>}
               <Chip type="green">재직</Chip>
@@ -7163,6 +7169,8 @@ function Employees({
                 상세
               </button>
             </div>
+              ))}
+            </section>
           ))
         ) : (
           <div className="empty-schedule">

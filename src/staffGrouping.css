@@ -1,0 +1,6 @@
+.staff-type-group + .staff-type-group { margin-top: 24px; }
+.staff-type-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border-radius: 10px; background: #f2f7ff; color: #2176e8; }
+.staff-type-heading b { font-size: 14px; }
+.staff-type-heading span { font-size: 11px; font-weight: 800; }
+.staff-type-group .employee-row:first-of-type { border-top: 0; }
+@media (max-width: 650px) { .staff-type-group + .staff-type-group { margin-top: 18px; } .staff-type-heading { padding: 9px 10px; } }
