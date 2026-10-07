@@ -9562,6 +9562,16 @@ function App() {
         checkedIn={checkedIn}
         setCheckedIn={setCheckedIn}
         onSelect={openEmployeeDetail}
+        organizationId={authContext.membership?.organization_id}
+        organizationName={
+          authContext.membership?.timefit_user_organizations?.name
+        }
+        canManageQr={Boolean(
+          authContext.isOrganizationOwner ||
+            authContext.managementAccount?.permissions?.includes(
+              "attendance.manage",
+            ),
+        )}
         canRecordOwnAttendance={employees.some(
           (item) => item.userId === authContext.session?.user?.id,
         )}
