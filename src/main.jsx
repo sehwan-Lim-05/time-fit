@@ -7019,88 +7019,11 @@ function FeedbackHub({ organizationId }) {
   );
 }
 
-function EmployeeOrderPanel({ employees, onMove }) {
-  const [dragging, setDragging] = useState(null);
-  const [over, setOver] = useState(null);
-  return (
-    <section className="card full-card employee-order-panel">
-      <div className="card-title">
-        <div>
-          <h2>직원 표시 순서</h2>
-          <p>
-            직원을 잡아 원하는 위치에 놓으면 스케줄과 PDF 순서가 바로
-            저장됩니다.
-          </p>
-        </div>
-      </div>
-      <div>
-        {employees.map((employee, index) => (
-          <div
-            key={employee.id}
-            draggable
-            className={`${dragging === index ? "dragging " : ""}${over === index && dragging !== index ? "drag-over" : ""}`}
-            onDragStart={(event) => {
-              setDragging(index);
-              event.dataTransfer.effectAllowed = "move";
-              event.dataTransfer.setData("text/plain", String(index));
-            }}
-            onDragOver={(event) => {
-              event.preventDefault();
-              event.dataTransfer.dropEffect = "move";
-              setOver(index);
-            }}
-            onDragLeave={() => setOver(null)}
-            onDrop={(event) => {
-              event.preventDefault();
-              const from =
-                dragging ?? Number(event.dataTransfer.getData("text/plain"));
-              setDragging(null);
-              setOver(null);
-              if (Number.isInteger(from) && from !== index) onMove(from, index);
-            }}
-            onDragEnd={() => {
-              setDragging(null);
-              setOver(null);
-            }}
-          >
-            <span className="employee-drag-handle" aria-hidden="true">
-              ⠿
-            </span>
-            <span className="employee-order-number">{index + 1}</span>
-            <Avatar name={employee.name} color={employee.color} />
-            <span className="grow">
-              <b>{employee.name}</b>
-              <small>
-                {employee.team} · {employee.role}
-              </small>
-            </span>
-            <button
-              type="button"
-              disabled={index === 0}
-              aria-label={`${employee.name} 위로 이동`}
-              onClick={() => onMove(index, index - 1)}
-            >
-              ↑
-            </button>
-            <button
-              type="button"
-              disabled={index === employees.length - 1}
-              aria-label={`${employee.name} 아래로 이동`}
-              onClick={() => onMove(index, index + 1)}
-            >
-              ↓
-            </button>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function Employees({
   employees,
   setModal,
   onSelect,
+  onMove,
   canInvite,
   canManage,
   canViewPayroll = false,
@@ -7110,6 +7033,19 @@ function Employees({
     `${employee.name} ${employee.team} ${employee.role}`.includes(query.trim()),
   );
   const employeeGroups = groupStaffByType(visibleEmployees);
+  const allEmployeeGroups = groupStaffByType(employees);
+  const moveWithinDepartment = (employee, direction) => {
+    const group = allEmployeeGroups.find(({ staff }) =>
+      staff.some(({ id }) => id === employee.id),
+    );
+    const position = group?.staff.findIndex(({ id }) => id === employee.id) ?? -1;
+    const target = group?.staff[position + direction];
+    if (!target) return;
+    onMove(
+      employees.findIndex(({ id }) => id === employee.id),
+      employees.findIndex(({ id }) => id === target.id),
+    );
+  };
   return (
     <>
       <div className="page-title">
@@ -7146,30 +7082,65 @@ function Employees({
                 <b>{group.type}</b>
                 <span>{group.staff.length}명</span>
               </div>
-              {group.staff.map((e) => (
-            <div
-              className="employee-row clickable-row"
-              key={e.id}
-              onClick={() => onSelect(e)}
-            >
-              <Avatar name={e.name} color={e.color} />
-              <span className="grow">
-                <b>{e.name}</b>
-                <small>{e.role}</small>
-              </span>
-              {canViewPayroll && <span>{e.pay}</span>}
-              <Chip type="green">재직</Chip>
-              <button
-                className="outline"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onSelect(e);
-                }}
-              >
-                상세
-              </button>
-            </div>
-              ))}
+              {group.staff.map((e) => {
+                const fullGroup = allEmployeeGroups.find(
+                  ({ type }) => type === group.type,
+                );
+                const position =
+                  fullGroup?.staff.findIndex(({ id }) => id === e.id) ?? -1;
+                return (
+                  <div
+                    className="employee-row clickable-row"
+                    key={e.id}
+                    onClick={() => onSelect(e)}
+                  >
+                    <Avatar name={e.name} color={e.color} />
+                    <span className="grow">
+                      <span className="employee-name-line">
+                        <b>{e.name}</b>
+                        {canManage && (
+                          <span className="employee-order-controls">
+                            <button
+                              type="button"
+                              disabled={position <= 0}
+                              aria-label={`${e.name} 부서 내 위로 이동`}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                moveWithinDepartment(e, -1);
+                              }}
+                            >
+                              ↑
+                            </button>
+                            <button
+                              type="button"
+                              disabled={position >= (fullGroup?.staff.length ?? 0) - 1}
+                              aria-label={`${e.name} 부서 내 아래로 이동`}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                moveWithinDepartment(e, 1);
+                              }}
+                            >
+                              ↓
+                            </button>
+                          </span>
+                        )}
+                      </span>
+                      <small>{e.role}</small>
+                    </span>
+                    {canViewPayroll && <span>{e.pay}</span>}
+                    <Chip type="green">재직</Chip>
+                    <button
+                      className="outline"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onSelect(e);
+                      }}
+                    >
+                      상세
+                    </button>
+                  </div>
+                );
+              })}
             </section>
           ))
         ) : (
@@ -9695,17 +9666,15 @@ function App() {
       <FeedbackHub organizationId={authContext.membership?.organization_id} />
     ),
     employees: (
-      <>
-        <EmployeeOrderPanel employees={employees} onMove={reorderEmployees} />
-        <Employees
-          employees={employees}
-          setModal={setModal}
-          onSelect={openEmployeeDetail}
-          canInvite={Boolean(authContext.isOrganizationOwner)}
-          canManage={canRegisterEmployees}
-          canViewPayroll={canViewCompensation}
-        />
-      </>
+      <Employees
+        employees={employees}
+        setModal={setModal}
+        onSelect={openEmployeeDetail}
+        onMove={reorderEmployees}
+        canInvite={Boolean(authContext.isOrganizationOwner)}
+        canManage={canRegisterEmployees}
+        canViewPayroll={canViewCompensation}
+      />
     ),
     settings: (
       <>
