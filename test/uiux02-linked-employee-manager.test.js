@@ -61,3 +61,17 @@ test('UIUX-02 expands mutating permissions with their required view permission',
     assert.match(source, /'expense\.export': 'finance\.view'/);
   }
 });
+
+test('UIUX-02 enforces delegated schedule approval and attendance correction by staff scope', () => {
+  assert.match(migration, /has_management_permission\(v_row\.organization_id,'schedule\.approve'\)/);
+  assert.match(migration, /management_can_access_staff\(v_row\.organization_id,v_row\.staff_id\)/);
+  assert.match(migration, /has_management_permission\(p_organization_id,'attendance\.review_correction'\)/);
+  assert.match(migration, /management_can_access_staff\(p_organization_id,p_staff_id\)/);
+});
+
+test('UIUX-02 hides privileged web actions without their matching permission', () => {
+  assert.match(ui, /canApproveSchedule/);
+  assert.match(ui, /canCorrectAttendance/);
+  assert.match(ui, /modal\?\.type === "scheduleEdit" && canManageSchedule/);
+  assert.match(ui, /canManage=\{canManageSchedule\}/);
+});
