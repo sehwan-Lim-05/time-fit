@@ -1,0 +1,64 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+
+const foundation = readFileSync(new URL('../supabase/migrations/20261006000100_alt01_notification_foundation.sql', import.meta.url), 'utf8');
+const repair = readFileSync(new URL('../supabase/migrations/20261007000200_qa04_notification_foundation_repair.sql', import.meta.url), 'utf8');
+const completion = readFileSync(new URL('../supabase/migrations/20261008000100_qa04_schedule_notification_completion.sql', import.meta.url), 'utf8');
+const dispatcher = readFileSync(new URL('../supabase/functions/dispatch-schedule-push/index.ts', import.meta.url), 'utf8');
+const workflow = readFileSync(new URL('../.github/workflows/dispatch-schedule-push.yml', import.meta.url), 'utf8');
+const client = readFileSync(new URL('../src/lib/supabase.js', import.meta.url), 'utf8');
+
+test('QA-04 publishes only approved new or materially changed schedules', () => {
+  assert.match(foundation, /new\.approval_status<>'approved'/);
+  assert.match(foundation, /old\.approval_status='approved'/);
+  assert.match(foundation, /is not distinct from/);
+  assert.match(foundation, /schedule_approved/);
+  assert.match(foundation, /schedule_changed/);
+  assert.match(foundation, /on conflict\(dedupe_key\) do nothing/);
+});
+
+test('QA-04 sends cancellation and opens the exact schedule date and item', () => {
+  assert.match(completion, /schedule_cancelled/);
+  assert.match(completion, /new\.status='cancelled'/);
+  assert.match(completion, /\/#schedule\?date=/);
+  assert.match(completion, /&id=/);
+});
+
+test('QA-04 message contains workplace, work date, and shift time', () => {
+  assert.match(completion, /timefit_user_organizations/);
+  assert.match(completion, /v_organization_name/);
+  assert.match(completion, /startsAt/);
+  assert.match(completion, /endsAt/);
+});
+
+test('QA-04 scheduled workflow targets the deployed push dispatcher contract', () => {
+  assert.match(workflow, /functions\/v1\/dispatch-schedule-push/);
+  assert.match(workflow, /x-timefit-dispatch-secret/);
+  assert.match(dispatcher, /SCHEDULE_PUSH_DISPATCH_SECRET/);
+  assert.match(dispatcher, /timefit_user_claim_push_deliveries/);
+});
+
+test('QA-04 delivery supports safe deep links, retry, and stale subscription revocation', () => {
+  assert.match(dispatcher, /notifications\|schedule\|attendance\|requests\|approvals/);
+  assert.match(dispatcher, /retry_wait/);
+  assert.match(dispatcher, /attempt_count \|\| 1\) >= 5/);
+  assert.match(dispatcher, /status === 404 \|\| status === 410/);
+  assert.match(dispatcher, /revoked_reason/);
+});
+
+test('QA-04 preserves duplicate subscription rows while revoking stale endpoint owners', () => {
+  assert.doesNotMatch(repair, /delete from public\.timefit_user_mobile_push_subscriptions/);
+  assert.match(repair, /duplicate_endpoint_migration/);
+  assert.match(repair, /where revoked_at is null/);
+  assert.match(repair, /on conflict\(endpoint\) where revoked_at is null/);
+});
+
+test('QA-04 schedule save does not depend on a drifted unique constraint', () => {
+  const saveSection = client.slice(client.indexOf('export async function saveWorkSchedule'), client.indexOf('export async function deleteWorkSchedule'));
+  assert.doesNotMatch(saveSection, /onConflict: 'staff_id,work_date'/);
+  assert.match(saveSection, /scheduleId = null/);
+  assert.match(saveSection, /update\(payload\)\.eq\('id', scheduleId\)/);
+  assert.match(saveSection, /insert\(\{ \.\.\.payload, created_by:/);
+  assert.match(saveSection, /throwWorkScheduleError/);
+});
