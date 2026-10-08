@@ -51,8 +51,8 @@ export async function stopAttendanceQrSession(sessionId) {
   if (error) throw error;
 }
 
-export async function getStaticAttendanceQr(organizationId, regenerate = false) {
-  const { data, error } = await requireClient().rpc('timefit_user_static_attendance_qr', { p_organization_id: organizationId, p_regenerate: regenerate });
+export async function getStaticAttendanceQr(organizationId) {
+  const { data, error } = await requireClient().rpc('timefit_user_static_attendance_qr', { p_organization_id: organizationId, p_regenerate: false });
   if (error) throw error; return data;
 }
 
