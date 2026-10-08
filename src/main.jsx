@@ -3186,9 +3186,8 @@ function AttendanceQrDisplay({ organizationId, organizationName, onClose }) {
   const [payload,setPayload]=useState(null);const [image,setImage]=useState('');const [error,setError]=useState('');
   const renderPayload=async next=>{setPayload(next);const mobileBase=process.env.NEXT_PUBLIC_MOBILE_APP_URL||'https://timefit-mobile.vercel.app/';const url=new URL(mobileBase);url.searchParams.set('qr',next.token);url.hash='attendance';setImage(await QRCode.toDataURL(url.toString(),{width:900,margin:3,errorCorrectionLevel:'H'}));};
   useEffect(()=>{let active=true;void getStaticAttendanceQr(organizationId).then(next=>active&&renderPayload(next)).catch(nextError=>active&&setError(nextError.message||'고정 QR을 불러오지 못했습니다.'));return()=>{active=false;};},[organizationId]);
-  const regenerate=async()=>{if(!window.confirm('기존에 인쇄한 QR은 즉시 사용할 수 없게 됩니다. 새 QR을 발급할까요?'))return;setError('');try{await renderPayload(await getStaticAttendanceQr(organizationId,true));}catch(nextError){setError(nextError.message||'새 QR을 발급하지 못했습니다.');}};
   const download=()=>{if(!image)return;const link=document.createElement('a');link.href=image;link.download=`${organizationName||'timefit'}-출퇴근-QR.png`;link.click();};
-  return <section className="attendance-qr-panel attendance-qr-print" aria-live="polite"><header><div><span>ATT-02 · 고정 업장 QR</span><h2>{organizationName||'현재 업장'} 출퇴근 QR</h2></div><button className="qr-screen-only" type="button" onClick={onClose} aria-label="QR 표시 닫기">×</button></header>{payload?<div className="attendance-qr-body"><div className="attendance-qr-image">{image?<img src={image} alt={`${organizationName||'현재 업장'} 출퇴근 QR`}/>:<span className="attendance-qr-loading">QR 생성 중…</span>}</div><div className="attendance-qr-copy"><strong>인쇄하거나 매장 태블릿에 표시하세요</strong><p>이 QR은 자동 갱신되지 않습니다. 로그인한 직원의 업장 소속은 스캔할 때마다 서버에서 확인되며, 관리자가 새 QR을 발급하기 전까지 계속 사용할 수 있습니다.</p><code>고정 QR · 발급 {new Date(payload.createdAt).toLocaleDateString('ko-KR')}</code><div className="attendance-qr-actions qr-screen-only"><button className="outline" type="button" onClick={()=>window.print()}>인쇄하기</button><button className="outline" type="button" onClick={download}>PNG 저장</button><button className="outline danger" type="button" onClick={()=>void regenerate()}>기존 QR 폐기·재발급</button></div></div></div>:<p className="attendance-qr-loading">업장 고정 QR을 준비하고 있어요.</p>}{error&&<p className="attendance-qr-error" role="alert">{error}</p>}<p className="qr-print-caption">직원은 TimeFit 앱에 로그인한 뒤 QR 메뉴에서 스캔해 주세요.</p></section>;
+  return <section className="attendance-qr-panel attendance-qr-print" aria-live="polite"><header><div><span>ATT-02 · 고정 업장 QR</span><h2>{organizationName||'현재 업장'} 출퇴근 QR</h2></div><button className="qr-screen-only" type="button" onClick={onClose} aria-label="QR 표시 닫기">×</button></header>{payload?<div className="attendance-qr-body"><div className="attendance-qr-image">{image?<img src={image} alt={`${organizationName||'현재 업장'} 출퇴근 QR`}/>:<span className="attendance-qr-loading">QR 생성 중…</span>}</div><div className="attendance-qr-copy"><strong>인쇄하거나 매장 태블릿에 표시하세요</strong><p>업장에 한 번 발급된 QR을 계속 사용합니다. 자동 갱신되거나 재발급되지 않으며, 로그인한 직원의 업장 소속은 스캔할 때마다 서버에서 확인됩니다.</p><code>영구 고정 QR · 최초 발급 {new Date(payload.createdAt).toLocaleDateString('ko-KR')}</code><div className="attendance-qr-actions qr-screen-only"><button className="outline" type="button" onClick={()=>window.print()}>인쇄하기</button><button className="outline" type="button" onClick={download}>PNG 저장</button></div></div></div>:<p className="attendance-qr-loading">업장 고정 QR을 준비하고 있어요.</p>}{error&&<p className="attendance-qr-error" role="alert">{error}</p>}<p className="qr-print-caption">직원은 TimeFit 앱에 로그인한 뒤 QR 메뉴에서 스캔해 주세요.</p></section>;
 }
 
 function Attendance({ employees, checkedIn, setCheckedIn, onSelect, canRecordOwnAttendance = false, organizationId, organizationName, canManageQr = true }) {
@@ -3367,7 +3366,18 @@ function MonthlyScheduleEditor({ employees, scheduleByDate, leaveRequests = [], 
     try {
       const groups = new Map();
       draftRows.forEach(([key, value]) => { const [staffId, date] = key.split(':'); const groupKey = [value.label, value.startsAt, value.endsAt, value.breakMinutes].join('|'); const group = groups.get(groupKey) || { ...value, staffIds: new Set(), datesByStaff: new Map() }; group.staffIds.add(staffId); group.datesByStaff.set(staffId, [...(group.datesByStaff.get(staffId) || []), date]); groups.set(groupKey, group); });
-      const changes = [...groups.values()].flatMap(group => [...group.datesByStaff].map(([staffId, workDates]) => ({ staffIds: [employees.find(item => String(item.id) === staffId)?.id || staffId], dates: workDates, startsAt: group.startsAt, endsAt: group.endsAt, shiftName: group.label, breakMinutes: group.breakMinutes })));
+      const changes = [...groups.values()].flatMap(group => [...group.datesByStaff].map(([staffId, workDates]) => {
+        const employee = employees.find(item => String(item.id) === staffId);
+        return {
+          staffIds: [employee?.id || staffId],
+          dates: workDates,
+          scheduleIdsByDate: Object.fromEntries(workDates.map(date => [date, employee ? existingFor(employee, date)?.[3] || null : null])),
+          startsAt: group.startsAt,
+          endsAt: group.endsAt,
+          shiftName: group.label,
+          breakMinutes: group.breakMinutes,
+        };
+      }));
       await onSave(changes); onClose();
     } catch (error) { setMessage(error.message || '월간 스케줄을 저장하지 못했습니다.'); }
     finally { setBusy(false); }
@@ -4333,6 +4343,17 @@ function ScheduleRegistrationForm({
         .toLowerCase()
         .includes(normalizedSearch),
   );
+  const filteredStaffGroups = [...filteredStaff.reduce((groups, employee) => {
+    const team = employee.team || "미분류";
+    const group = groups.get(team) || {
+      name: team,
+      color: employee.categoryColor || "#8b95a1",
+      employees: [],
+    };
+    group.employees.push(employee);
+    groups.set(team, group);
+    return groups;
+  }, new Map()).values()];
   const toggleStaff = (employeeId) => {
     setStaffIds((current) =>
       mode === "single"
@@ -4473,24 +4494,30 @@ function ScheduleRegistrationForm({
               ))}
             </div>
           )}
-          <div className="selection-grid staff-selection">
-            {filteredStaff.map((employee) => (
-              <label key={employee.id}>
-                <input
-                  type={mode === "single" ? "radio" : "checkbox"}
-                  name="schedule-staff"
-                  checked={staffIds.includes(employee.id)}
-                  onChange={() => toggleStaff(employee.id)}
-                />
-                <span>{employee.name}</span>
-                <small>
-                  {employee.team} · {employee.role}
-                </small>
-              </label>
+          <div className="staff-selection-groups">
+            {filteredStaffGroups.map((group) => (
+              <section className="staff-selection-group" style={{ "--staff-group-color": group.color }} key={group.name}>
+                <header>
+                  <span><i />{group.name}</span>
+                  <small>{group.employees.filter((employee) => staffIds.includes(employee.id)).length}/{group.employees.length}명 선택</small>
+                </header>
+                <div className="selection-grid staff-selection">
+                  {group.employees.map((employee) => (
+                    <label key={employee.id}>
+                      <input
+                        type={mode === "single" ? "radio" : "checkbox"}
+                        name="schedule-staff"
+                        checked={staffIds.includes(employee.id)}
+                        onChange={() => toggleStaff(employee.id)}
+                      />
+                      <span>{employee.name}</span>
+                      <small>{employee.role}</small>
+                    </label>
+                  ))}
+                </div>
+              </section>
             ))}
-            {!filteredStaff.length && (
-              <p className="empty-state">검색 결과가 없어요.</p>
-            )}
+            {!filteredStaffGroups.length && <p className="empty-state">검색 결과가 없어요.</p>}
           </div>
         </fieldset>
         <section className="date-picker-trigger">
@@ -10152,7 +10179,7 @@ function App() {
         );
       }
     } catch (error) {
-      setToast(managementActionErrorMessage(error, "근무 일정을 저장하지 못했습니다."));
+      setToast(error?.message === "schedule_time_conflict" ? "이미 등록된 근무 시간과 겹쳐요. 기존 일정을 확인해 주세요." : managementActionErrorMessage(error, "근무 일정을 저장하지 못했습니다."));
     }
   };
   const saveMonthlyScheduleChanges = async (changes) => {
@@ -10182,16 +10209,37 @@ function App() {
     if (supabase) {
       const currentContext = await revalidateManagementPermission("schedule.manage");
       for (const change of changes) {
-        const result = await saveWorkSchedulesBulk({
-          organizationId: currentContext.membership.organization_id,
-          staffIds: change.staffIds,
-          workDates: change.dates,
-          startsAt: change.startsAt,
-          endsAt: change.endsAt,
-          shiftName: change.shiftName,
-          breakMinutes: change.breakMinutes,
-        });
-        count += result.count;
+        const newDates = [];
+        for (const workDate of change.dates) {
+          const scheduleId = change.scheduleIdsByDate?.[workDate];
+          if (!scheduleId) {
+            newDates.push(workDate);
+            continue;
+          }
+          await saveWorkSchedule({
+            scheduleId,
+            organizationId: currentContext.membership.organization_id,
+            staffId: change.staffIds[0],
+            workDate,
+            startsAt: change.startsAt,
+            endsAt: change.endsAt,
+            shiftName: change.shiftName,
+            breakMinutes: change.breakMinutes,
+          });
+          count += 1;
+        }
+        if (newDates.length) {
+          const result = await saveWorkSchedulesBulk({
+            organizationId: currentContext.membership.organization_id,
+            staffIds: change.staffIds,
+            workDates: newDates,
+            startsAt: change.startsAt,
+            endsAt: change.endsAt,
+            shiftName: change.shiftName,
+            breakMinutes: change.breakMinutes,
+          });
+          count += result.count;
+        }
       }
       await refreshWorkforceInPlace();
     } else
@@ -10209,7 +10257,7 @@ function App() {
     try {
       if (supabase) {
         const currentContext = await revalidateManagementPermission("schedule.manage");
-        await saveWorkSchedule({
+        await saveWorkSchedule({ scheduleId: schedule.id,
           organizationId: currentContext.membership.organization_id,
           staffId: schedule.staffId,
           workDate: schedule.date,
@@ -10245,7 +10293,7 @@ function App() {
           : `${schedule.name}님의 일정 수정 승인을 요청했어요.`,
       );
     } catch (error) {
-      setToast(managementActionErrorMessage(error, "근무 일정을 수정하지 못했습니다."));
+      setToast(error?.message === "schedule_time_conflict" ? "이미 등록된 근무 시간과 겹쳐요. 기존 일정을 확인해 주세요." : managementActionErrorMessage(error, "근무 일정을 수정하지 못했습니다."));
     }
   };
   const removeSchedule = async (schedule) => {

@@ -51,8 +51,8 @@ export async function stopAttendanceQrSession(sessionId) {
   if (error) throw error;
 }
 
-export async function getStaticAttendanceQr(organizationId, regenerate = false) {
-  const { data, error } = await requireClient().rpc('timefit_user_static_attendance_qr', { p_organization_id: organizationId, p_regenerate: regenerate });
+export async function getStaticAttendanceQr(organizationId) {
+  const { data, error } = await requireClient().rpc('timefit_user_static_attendance_qr', { p_organization_id: organizationId, p_regenerate: false });
   if (error) throw error; return data;
 }
 
@@ -213,11 +213,23 @@ export async function saveStaffOrder(staffIds) {
   if (failed) throw failed.error;
 }
 
-export async function saveWorkSchedule({ organizationId, staffId, workDate, startsAt, endsAt, shiftName, breakMinutes = 0, breakStartsAt = null, breakEndsAt = null }) {
+function throwWorkScheduleError(error) {
+  if (!error) return;
+  if (error.code === '23P01' || error.code === '23505' || error.message?.includes('schedule_time_conflict')) {
+    throw new Error('schedule_time_conflict');
+  }
+  throw error;
+}
+
+export async function saveWorkSchedule({ scheduleId = null, organizationId, staffId, workDate, startsAt, endsAt, shiftName, breakMinutes = 0, breakStartsAt = null, breakEndsAt = null }) {
   const client = requireClient();
   const isDayOff = !startsAt || !endsAt;
-  const { data, error } = await client.from('timefit_user_work_schedules').upsert({ organization_id: organizationId, staff_id: staffId, work_date: workDate, starts_at: isDayOff ? null : startsAt, ends_at: isDayOff ? null : endsAt, break_minutes: isDayOff ? 0 : Number(breakMinutes) || 0, break_starts_at: isDayOff ? null : breakStartsAt || null, break_ends_at: isDayOff ? null : breakEndsAt || null, shift_name: shiftName || (isDayOff ? '휴무' : '일반 근무'), is_day_off: isDayOff, created_by: (await client.auth.getUser()).data.user?.id }, { onConflict: 'staff_id,work_date' }).select().single();
-  if (error) throw error; return data;
+  const payload = { organization_id: organizationId, staff_id: staffId, work_date: workDate, starts_at: isDayOff ? null : startsAt, ends_at: isDayOff ? null : endsAt, break_minutes: isDayOff ? 0 : Number(breakMinutes) || 0, break_starts_at: isDayOff ? null : breakStartsAt || null, break_ends_at: isDayOff ? null : breakEndsAt || null, shift_name: shiftName || (isDayOff ? '휴무' : '일반 근무'), is_day_off: isDayOff };
+  const request = scheduleId
+    ? client.from('timefit_user_work_schedules').update(payload).eq('id', scheduleId).eq('organization_id', organizationId)
+    : client.from('timefit_user_work_schedules').insert({ ...payload, created_by: (await client.auth.getUser()).data.user?.id });
+  const { data, error } = await request.select().single();
+  if (error) throwWorkScheduleError(error); return data;
 }
 
 export async function saveWorkSchedulesBulk({ organizationId, staffIds, workDates, startsAt, endsAt, shiftName, breakMinutes = 0, breakStartsAt = null, breakEndsAt = null }) {
@@ -231,8 +243,8 @@ export async function saveWorkSchedulesBulk({ organizationId, staffIds, workDate
     is_day_off: isDayOff, created_by: userId,
   })));
   if (!rows.length) throw new Error('bulk_schedule_selection_required');
-  const { data, error } = await client.from('timefit_user_work_schedules').upsert(rows, { onConflict: 'staff_id,work_date' }).select();
-  if (error) throw error;
+  const { data, error } = await client.from('timefit_user_work_schedules').insert(rows).select();
+  if (error) throwWorkScheduleError(error);
   return { count: data?.length || rows.length };
 }
 
