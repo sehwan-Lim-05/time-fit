@@ -1,17 +1,5 @@
--- ATT-02: a workplace QR can be printed or left on a dedicated tablet.
--- It remains valid until a manager explicitly regenerates it. Employee
--- authentication and workplace membership are still checked on every scan.
-
-create table if not exists public.timefit_user_attendance_static_qr (
-  organization_id uuid primary key references public.timefit_user_organizations(id) on delete cascade,
-  session_id uuid not null references public.timefit_user_attendance_qr_sessions(id) on delete cascade,
-  token_value text not null,
-  created_by uuid not null references auth.users(id) on delete restrict,
-  created_at timestamptz not null default now()
-);
-
-alter table public.timefit_user_attendance_static_qr enable row level security;
-grant all on public.timefit_user_attendance_static_qr to service_role;
+-- ATT-02 authorization fix: owners and delegated attendance managers can
+-- display the persistent workplace QR without changing its token.
 
 create or replace function public.timefit_user_static_attendance_qr(
   p_organization_id uuid,
@@ -31,6 +19,7 @@ begin
   ) then
     raise exception using errcode='42501',message='qr_session_manager_required';
   end if;
+
   perform pg_advisory_xact_lock(hashtextextended(p_organization_id::text,2));
   select name into v_name from public.timefit_user_organizations where id=p_organization_id;
   if v_name is null then raise exception using errcode='22023',message='organization_not_found';end if;
@@ -50,8 +39,6 @@ begin
     delete from public.timefit_user_attendance_static_qr where organization_id=p_organization_id;
   end if;
 
-  -- Remove an abandoned rotating display before creating the one persistent
-  -- workplace session required by the existing attendance validator.
   update public.timefit_user_attendance_qr_sessions set revoked_at=v_now
     where organization_id=p_organization_id and revoked_at is null;
   update public.timefit_user_mobile_attendance_qr_tokens set is_active=false,revoked_at=v_now

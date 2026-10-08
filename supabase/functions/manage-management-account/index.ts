@@ -2,7 +2,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.49.4'
 
 const headers = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Content-Type': 'application/json' }
 const permissionCodes = new Set([
-  'dashboard.view','attendance.view','schedule.view','schedule.manage','leave.view','leave.review','payroll.view','employee.view','employee.manage',
+  'dashboard.view','attendance.view','attendance.manage','attendance.review_correction','schedule.view','schedule.manage','schedule.approve','leave.view','leave.review','payroll.view','employee.view','employee.manage','employee.compensation.view','employee.compensation.manage',
   'sales.view','sales.sync','settings.manage','finance.view','expense.manage','expense.receipt.review','expense.card.manage','expense.closeout.manage','expense.export',
 ])
 
@@ -19,21 +19,34 @@ Deno.serve(async request => {
     const action = String(body.action || '')
     const { data: organization } = await admin.from('timefit_user_organizations').select('owner_id').eq('id', organizationId).maybeSingle()
     if (!organization || organization.owner_id !== caller.user.id) throw new Error('organization_owner_required')
-    const { data: account } = await admin.from('timefit_user_management_accounts').select('id,user_id').eq('id', accountId).eq('organization_id', organizationId).maybeSingle()
+    const { data: account } = await admin.from('timefit_user_management_accounts').select('id,user_id,account_origin,role_code,status,staff_id').eq('id', accountId).eq('organization_id', organizationId).maybeSingle()
     if (!account) throw new Error('management_account_not_found')
     if (action === 'delete') {
+      if (account.account_origin === 'linked_employee') {
+        await admin.from('timefit_user_management_audit_logs').insert({ organization_id: organizationId, management_account_id: account.id, target_user_id: account.user_id, actor_user_id: caller.user.id, action: 'revoked', before_state: account })
+        const { error } = await admin.from('timefit_user_management_accounts').delete().eq('id', account.id)
+        if (error) throw error
+        return new Response(JSON.stringify({ deleted: true, employeeAccountPreserved: true }), { headers })
+      }
       const { error } = await admin.auth.admin.deleteUser(account.user_id)
       if (error) throw error
-      return new Response(JSON.stringify({ deleted: true }), { headers })
+      return new Response(JSON.stringify({ deleted: true, employeeAccountPreserved: false }), { headers })
     }
     if (action !== 'update') throw new Error('invalid_management_account_action')
     const roleCode = String(body.roleCode || '')
     const status = String(body.status || '')
     const requestedPermissions = [...new Set((Array.isArray(body.permissions) ? body.permissions : []).map(String))]
-    const permissions = [...new Set([
-      ...requestedPermissions,
-      ...(requestedPermissions.includes('employee.manage') ? ['employee.view'] : []),
-    ])]
+    const dependencies: Record<string, string[]> = {
+      'attendance.manage': ['attendance.view'], 'attendance.review_correction': ['attendance.view'],
+      'schedule.manage': ['schedule.view'], 'schedule.approve': ['schedule.view'],
+      'leave.review': ['leave.view'], 'employee.manage': ['employee.view'],
+      'employee.compensation.view': ['employee.view'],
+      'employee.compensation.manage': ['employee.view', 'employee.compensation.view'],
+      'sales.sync': ['sales.view'], 'expense.manage': ['finance.view'],
+      'expense.receipt.review': ['finance.view'], 'expense.card.manage': ['finance.view'],
+      'expense.closeout.manage': ['finance.view'], 'expense.export': ['finance.view'],
+    }
+    const permissions = [...new Set([...requestedPermissions, ...requestedPermissions.flatMap(code => dependencies[code] || [])])]
     const categoryIds = [...new Set((Array.isArray(body.categoryIds) ? body.categoryIds : []).map(String))]
     const costCenterIds = [...new Set((Array.isArray(body.costCenterIds) ? body.costCenterIds : []).map(String))]
     if (!['manager','executive_chef'].includes(roleCode) || !['active','suspended'].includes(status) || permissions.some(code => !permissionCodes.has(code))) throw new Error('invalid_management_account_input')
@@ -57,6 +70,7 @@ Deno.serve(async request => {
       const { error } = await admin.from('timefit_user_management_cost_center_scopes').insert(costCenterIds.map(costCenterId => ({ management_account_id: accountId, cost_center_id: costCenterId })))
       if (error) throw error
     }
+    await admin.from('timefit_user_management_audit_logs').insert({ organization_id: organizationId, management_account_id: account.id, target_user_id: account.user_id, actor_user_id: caller.user.id, action: status === 'suspended' ? 'suspended' : account.status === 'suspended' ? 'reactivated' : 'updated', before_state: account, after_state: { roleCode, status, staffId: body.staffId || null, permissions, categoryIds, costCenterIds } })
     return new Response(JSON.stringify({ updated: true }), { headers })
   } catch (error) {
     const message = error instanceof Error ? error.message : JSON.stringify(error)

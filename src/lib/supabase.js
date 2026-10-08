@@ -157,8 +157,8 @@ async function allWorkforceRows(queryFactory) {
 export async function loadWorkforce(organizationId) {
   const client = requireClient();
   const context = await getAuthContext();
-  const canViewPayroll = Boolean(context.isOrganizationOwner || context.managementAccount?.permissions?.includes('payroll.view'));
-  const staffColumns = `id,user_id,display_name,department,category_id,job_title,joined_on,phone_e164,avatar_path,sort_order${canViewPayroll ? ',pay_type,hourly_wage,daily_wage,monthly_salary,annual_salary' : ''}`;
+  const canViewCompensation = Boolean(context.isOrganizationOwner || context.managementAccount?.permissions?.includes('employee.compensation.view'));
+  const staffColumns = `id,user_id,display_name,department,category_id,job_title,joined_on,phone_e164,avatar_path,sort_order${canViewCompensation ? ',pay_type,hourly_wage,daily_wage,monthly_salary,annual_salary' : ''}`;
   const [staffResult, scheduleResult, leaveResult, attendanceResult, settingsResult, grantsResult, categoriesResult] = await requestWithTimeout(Promise.all([
     allWorkforceRows(() => client.from('timefit_user_staff').select(staffColumns).eq('organization_id', organizationId).order('sort_order').order('created_at').order('id')),
     allWorkforceRows(() => client.from('timefit_user_work_schedules').select('id,staff_id,work_date,starts_at,ends_at,break_minutes,break_paid,break_starts_at,break_ends_at,shift_name,is_day_off,status,approval_status,submitted_by,submitted_at,reviewed_by,reviewed_at,review_comment,updated_at').eq('organization_id', organizationId).order('work_date').order('id')),
@@ -274,7 +274,7 @@ export async function manageManagementAccount(payload) {
 
 export async function loadManagementAccounts(organizationId) {
   const client = requireClient();
-  const { data, error } = await client.from('timefit_user_management_accounts').select('id,user_id,staff_id,login_id,role_code,status,force_password_change,created_at,timefit_user_management_permissions(permission_code,allowed),timefit_user_management_scopes(category_id),timefit_user_management_cost_center_scopes(cost_center_id)').eq('organization_id', organizationId).order('created_at', { ascending: false });
+  const { data, error } = await client.from('timefit_user_management_accounts').select('id,user_id,staff_id,login_id,role_code,status,account_origin,force_password_change,created_at,timefit_user_management_permissions(permission_code,allowed),timefit_user_management_scopes(category_id),timefit_user_management_cost_center_scopes(cost_center_id)').eq('organization_id', organizationId).order('created_at', { ascending: false });
   if (error) throw error; return data || [];
 }
 
