@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const foundation = readFileSync(new URL('../supabase/migrations/20261006000100_alt01_notification_foundation.sql', import.meta.url), 'utf8');
+const completion = readFileSync(new URL('../supabase/migrations/20261008000100_qa04_schedule_notification_completion.sql', import.meta.url), 'utf8');
 const dispatcher = readFileSync(new URL('../supabase/functions/dispatch-schedule-push/index.ts', import.meta.url), 'utf8');
 const workflow = readFileSync(new URL('../.github/workflows/dispatch-schedule-push.yml', import.meta.url), 'utf8');
 const client = readFileSync(new URL('../src/lib/supabase.js', import.meta.url), 'utf8');
@@ -14,6 +15,20 @@ test('QA-04 publishes only approved new or materially changed schedules', () => 
   assert.match(foundation, /schedule_approved/);
   assert.match(foundation, /schedule_changed/);
   assert.match(foundation, /on conflict\(dedupe_key\) do nothing/);
+});
+
+test('QA-04 sends cancellation and opens the exact schedule date and item', () => {
+  assert.match(completion, /schedule_cancelled/);
+  assert.match(completion, /new\.status='cancelled'/);
+  assert.match(completion, /\/#schedule\?date=/);
+  assert.match(completion, /&id=/);
+});
+
+test('QA-04 message contains workplace, work date, and shift time', () => {
+  assert.match(completion, /timefit_user_organizations/);
+  assert.match(completion, /v_organization_name/);
+  assert.match(completion, /startsAt/);
+  assert.match(completion, /endsAt/);
 });
 
 test('QA-04 scheduled workflow targets the deployed push dispatcher contract', () => {
