@@ -49,6 +49,8 @@ test('QA-04 delivery supports safe deep links, retry, and stale subscription rev
 test('QA-04 schedule save does not depend on a drifted unique constraint', () => {
   const saveSection = client.slice(client.indexOf('export async function saveWorkSchedule'), client.indexOf('export async function deleteWorkSchedule'));
   assert.doesNotMatch(saveSection, /onConflict: 'staff_id,work_date'/);
-  assert.match(saveSection, /\.maybeSingle\(\)/);
-  assert.match(saveSection, /existing\?\.id/);
+  assert.match(saveSection, /scheduleId = null/);
+  assert.match(saveSection, /update\(payload\)\.eq\('id', scheduleId\)/);
+  assert.match(saveSection, /insert\(\{ \.\.\.payload, created_by:/);
+  assert.match(saveSection, /throwWorkScheduleError/);
 });
