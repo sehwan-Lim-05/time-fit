@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const foundation = readFileSync(new URL('../supabase/migrations/20261006000100_alt01_notification_foundation.sql', import.meta.url), 'utf8');
+const repair = readFileSync(new URL('../supabase/migrations/20261007000200_qa04_notification_foundation_repair.sql', import.meta.url), 'utf8');
 const completion = readFileSync(new URL('../supabase/migrations/20261008000100_qa04_schedule_notification_completion.sql', import.meta.url), 'utf8');
 const dispatcher = readFileSync(new URL('../supabase/functions/dispatch-schedule-push/index.ts', import.meta.url), 'utf8');
 const workflow = readFileSync(new URL('../.github/workflows/dispatch-schedule-push.yml', import.meta.url), 'utf8');
@@ -44,6 +45,13 @@ test('QA-04 delivery supports safe deep links, retry, and stale subscription rev
   assert.match(dispatcher, /attempt_count \|\| 1\) >= 5/);
   assert.match(dispatcher, /status === 404 \|\| status === 410/);
   assert.match(dispatcher, /revoked_reason/);
+});
+
+test('QA-04 preserves duplicate subscription rows while revoking stale endpoint owners', () => {
+  assert.doesNotMatch(repair, /delete from public\.timefit_user_mobile_push_subscriptions/);
+  assert.match(repair, /duplicate_endpoint_migration/);
+  assert.match(repair, /where revoked_at is null/);
+  assert.match(repair, /on conflict\(endpoint\) where revoked_at is null/);
 });
 
 test('QA-04 schedule save does not depend on a drifted unique constraint', () => {

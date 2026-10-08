@@ -55,10 +55,15 @@ with duplicates as (
   select id,row_number() over(partition by endpoint order by updated_at desc,id desc) position
   from public.timefit_user_mobile_push_subscriptions
 )
-delete from public.timefit_user_mobile_push_subscriptions subscription
-using duplicates where subscription.id=duplicates.id and duplicates.position>1;
+update public.timefit_user_mobile_push_subscriptions subscription
+set revoked_at=coalesce(subscription.revoked_at,now()),
+    revoked_reason=coalesce(subscription.revoked_reason,'duplicate_endpoint_migration'),
+    updated_at=now()
+from duplicates where subscription.id=duplicates.id and duplicates.position>1;
+drop index if exists public.timefit_mobile_push_endpoint_unique;
 create unique index if not exists timefit_mobile_push_endpoint_unique
-  on public.timefit_user_mobile_push_subscriptions(endpoint);
+  on public.timefit_user_mobile_push_subscriptions(endpoint)
+  where revoked_at is null;
 
 create table if not exists public.timefit_user_notification_deliveries (
   id uuid primary key default gen_random_uuid(),
@@ -105,7 +110,7 @@ begin
   end if;
   insert into public.timefit_user_mobile_push_subscriptions(user_id,endpoint,p256dh,auth_secret,user_agent,expiration_time,last_seen_at,revoked_at,revoked_reason)
   values(auth.uid(),trim(p_endpoint),p_p256dh,p_auth_secret,nullif(left(p_user_agent,500),''),p_expiration_time,now(),null,null)
-  on conflict(endpoint) do update set user_id=auth.uid(),p256dh=excluded.p256dh,auth_secret=excluded.auth_secret,
+  on conflict(endpoint) where revoked_at is null do update set user_id=auth.uid(),p256dh=excluded.p256dh,auth_secret=excluded.auth_secret,
     user_agent=excluded.user_agent,expiration_time=excluded.expiration_time,last_seen_at=now(),revoked_at=null,revoked_reason=null,updated_at=now()
   returning id into v_id;
   return v_id;
@@ -214,4 +219,3 @@ revoke all on function public.timefit_user_mobile_register_push(text,text,text,t
 grant execute on function public.timefit_user_mobile_register_push(text,text,text,text,timestamptz),public.timefit_user_mobile_revoke_push(text),public.timefit_user_mobile_notifications(uuid,integer),public.timefit_user_mobile_read_notification(uuid) to authenticated;
 grant execute on function public.timefit_user_claim_push_deliveries(integer) to service_role;
 select pg_notify('pgrst','reload schema');
-
