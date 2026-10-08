@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const migrationUrl = new URL('../supabase/migrations/20261006000200_alt03_schedule_leave_notifications.sql', import.meta.url);
+const migrationUrl = new URL('../supabase/migrations/20261006000300_alt03_schedule_leave_notifications.sql', import.meta.url);
 const sql = await readFile(migrationUrl, 'utf8');
 
 test('ALT-03 records durable leave workflow events', () => {
