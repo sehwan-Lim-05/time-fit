@@ -1,12 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { authorizeFinance, authorizeOrganizationMember, financeError, financeRest, financeServerConfigured, methodNotAllowed } from './_finance-server.js';
-
-const localAxUrl = () => {
-  const value = String(process.env.TIMEFIT_AX_URL || 'http://127.0.0.1:8351').replace(/\/$/, '');
-  const url = new URL(value);
-  if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]', '::1'].includes(url.hostname)) throw new Error('timefit_ax_must_be_loopback');
-  return value;
-};
+import { extractReceiptWithTimefitAx } from './_timefit-ax.js';
 
 async function authorizeDocument(req, document) {
   const member = await authorizeOrganizationMember(req, document.organization_id);
@@ -22,30 +16,19 @@ export default async function handler(req, res) {
   }
   const organizationId = String(req.body?.organizationId || '');
   const documentId = String(req.body?.documentId || '');
-  const imageUrls = Array.isArray(req.body?.imageUrls)
-    ? req.body.imageUrls.map(value => String(value || ''))
-    : req.body?.imageUrl ? [String(req.body.imageUrl)] : [];
-  if (!organizationId || !documentId || !imageUrls.length || imageUrls.length > 20 || imageUrls.some(url => !url || url.length > 4096)) {
-    return res.status(400).json({ ok: false, error: '영수증 문서와 이미지 URL을 확인해 주세요.' });
-  }
+  if (!organizationId || !documentId) return res.status(400).json({ ok: false, error: '영수증 문서를 확인해 주세요.' });
   try {
-    const documents = await financeRest(`timefit_user_finance_documents?id=eq.${encodeURIComponent(documentId)}&organization_id=eq.${encodeURIComponent(organizationId)}&document_type=eq.receipt&select=id,organization_id,uploaded_by,extracted_data`);
+    const documents = await financeRest(`timefit_user_finance_documents?id=eq.${encodeURIComponent(documentId)}&organization_id=eq.${encodeURIComponent(organizationId)}&document_type=eq.receipt&select=id,organization_id,uploaded_by,extracted_data,storage_path,mime_type`);
     const document = documents[0];
     if (!document) return res.status(404).json({ ok: false, error: '영수증 문서를 찾을 수 없습니다.' });
     const auth = await authorizeDocument(req, document);
     if (!auth) return res.status(req.headers.authorization ? 403 : 401).json({ ok: false, error: '영수증 분석 권한이 없습니다.' });
     const requestId = String(req.body?.requestId || `receipt:${documentId}:${randomUUID()}`);
-    const response = await fetch(`${localAxUrl()}/api/timefit/v1/receipt-sessions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Timefit-Ax-Key': process.env.TIMEFIT_AX_TRANSPORT_KEY },
-      body: JSON.stringify({ requestId, organizationId, documentId, imageUrls }),
-      signal: AbortSignal.timeout(Number(process.env.TIMEFIT_AX_REQUEST_TIMEOUT_MS || 240000)),
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok || payload.state !== 'SUCCEEDED' || !payload.extraction) {
-      const error = new Error(payload.error || payload.errorCode || `timefit_ax_${response.status}`); error.status = response.status; throw error;
-    }
-    const extraction = { ...payload.extraction, extractionProvider: 'timefit_ax_codex', axRequestId: requestId, imageContentSha256: payload.imageContentSha256 || null };
+    const pages = await financeRest(`timefit_user_finance_document_pages?document_id=eq.${encodeURIComponent(documentId)}&select=storage_path,mime_type&page_number=not.is.null&order=page_number.asc`);
+    const sourcePages = pages.length ? pages : [{ storage_path: document.storage_path, mime_type: document.mime_type }];
+    if (sourcePages.some(page => !String(page.mime_type || '').startsWith('image/'))) return res.status(400).json({ ok: false, error: '이미지 영수증만 분석할 수 있습니다.' });
+    const result = await extractReceiptWithTimefitAx({ organizationId, documentId, requestId, storagePaths: sourcePages.map(page => page.storage_path) });
+    const extraction = { ...result.extracted, rawText: result.rawText, axRequestId: result.requestId, imageContentSha256: result.imageContentSha256 };
     await financeRest(`timefit_user_finance_documents?id=eq.${encodeURIComponent(documentId)}&organization_id=eq.${encodeURIComponent(organizationId)}`, {
       method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({
         extracted_data: extraction,

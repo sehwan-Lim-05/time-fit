@@ -2,6 +2,7 @@ import { after } from 'next/server.js';
 import { createHash } from 'node:crypto';
 import { authorizeFinance, authorizeOrganizationMember, canAccessFinanceCostCenter, financeError, financeRest, financeServerConfigured, methodNotAllowed, serviceHeaders } from './_finance-server.js';
 import { extractReceiptWithLlm, mergeReceiptExtractions } from './_receipt-llm.js';
+import { extractReceiptWithTimefitAx, timefitAxConfigured } from './_timefit-ax.js';
 import { receiptValidation } from '../domain/receipt-validation.js';
 import { extractSpatialReceipt, normalizeOcrNumber } from '../domain/receipt-spatial-extraction.js';
 import { expenseAmountError } from '../domain/expense-amount-validation.js';
@@ -173,28 +174,49 @@ export async function processReceiptRun({ organizationId, documentId, runId }) {
     const pages = await financeRest(`timefit_user_finance_document_pages?document_id=eq.${encodeURIComponent(documentId)}&select=*&order=page_number.asc`);
     const sourcePages = pages.length ? pages : [{ storage_path: document.storage_path, mime_type: document.mime_type }];
     if (sourcePages.some(page => !String(page.mime_type || '').startsWith('image/'))) throw new Error('receipt_image_required');
-    const pageResults = [];
-    for (const page of sourcePages) {
-      pageResults.push(await visionText(await downloadDocument(page.storage_path)));
-      await financeRest(`timefit_user_expense_processing_runs?id=eq.${encodeURIComponent(runId)}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ heartbeat_at: new Date().toISOString() }) });
+    let text = ''; let extracted = null; let llmResult = null; let llmError = null; let axResult = null; let axError = null;
+    if (timefitAxConfigured()) {
+      try {
+        axResult = await extractReceiptWithTimefitAx({
+          organizationId, documentId, runId,
+          storagePaths: sourcePages.map(page => page.storage_path),
+        });
+        text = axResult.rawText;
+        extracted = { ...axResult.extracted, imageContentSha256: axResult.imageContentSha256, axRequestId: axResult.requestId };
+        await financeRest(`timefit_user_expense_processing_runs?id=eq.${encodeURIComponent(runId)}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ heartbeat_at: new Date().toISOString() }) });
+      } catch (error) {
+        axError = error;
+        console.error('timefit_ax_receipt_fallback', { documentId, runId, message: error.message });
+      }
     }
-    const text = pageResults.map(result => result.text).filter(Boolean).join('\n\n--- page ---\n\n');
-    if (!text.trim()) throw new Error('receipt_text_not_found');
-    const spatialPages = pageResults.map(result => structuredReceipt(result.text, result.annotation));
-    const combined = structuredReceipt(text);
-    const primary = spatialPages[0] || {};
-    const ruleBased = {
-      ...combined,
-      ...primary,
-      merchantName: primary.merchantName || combined.merchantName,
-      merchantBusinessNumber: primary.merchantBusinessNumber || combined.merchantBusinessNumber,
-      transactionDate: primary.transactionDate || combined.transactionDate,
-      totalAmount: primary.totalAmount || combined.totalAmount,
-      lineItems: spatialPages.flatMap(page => page.lineItems || []).map((item, index) => ({ ...item, lineNumber: index + 1 })),
-    };
-    let llmResult = null; let llmError = null;
-    try { llmResult = await extractReceiptWithLlm(text); } catch (error) { llmError = error; }
-    let extracted = mergeReceiptExtractions(ruleBased, llmResult);
+    if (!extracted) {
+      const pageResults = [];
+      for (const page of sourcePages) {
+        pageResults.push(await visionText(await downloadDocument(page.storage_path)));
+        await financeRest(`timefit_user_expense_processing_runs?id=eq.${encodeURIComponent(runId)}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ heartbeat_at: new Date().toISOString() }) });
+      }
+      text = pageResults.map(result => result.text).filter(Boolean).join('\n\n--- page ---\n\n');
+      if (!text.trim()) throw new Error('receipt_text_not_found');
+      const spatialPages = pageResults.map(result => structuredReceipt(result.text, result.annotation));
+      const combined = structuredReceipt(text);
+      const primary = spatialPages[0] || {};
+      const ruleBased = {
+        ...combined,
+        ...primary,
+        merchantName: primary.merchantName || combined.merchantName,
+        merchantBusinessNumber: primary.merchantBusinessNumber || combined.merchantBusinessNumber,
+        transactionDate: primary.transactionDate || combined.transactionDate,
+        totalAmount: primary.totalAmount || combined.totalAmount,
+        lineItems: spatialPages.flatMap(page => page.lineItems || []).map((item, index) => ({ ...item, lineNumber: index + 1 })),
+      };
+      try { llmResult = await extractReceiptWithLlm(text); } catch (error) { llmError = error; }
+      extracted = mergeReceiptExtractions(ruleBased, llmResult);
+    }
+    const extractionModel = axResult?.model || llmResult?.model || null;
+    const fallbackUsed = Boolean(axError) || (!axResult && !llmResult);
+    const processingWarning = axError
+      ? `timefit_ax_fallback:${String(axError.message || 'failed').slice(0, 120)}`
+      : llmError ? String(llmError.message || 'llm_fallback').slice(0, 160) : null;
     const rules = await financeRest(`timefit_user_expense_classification_rules?organization_id=eq.${encodeURIComponent(organizationId)}&is_active=eq.true&select=id,match_type,match_value,category,default_reason,priority,is_active,hit_count&order=priority.desc&limit=200`);
     const classificationRule = matchingClassificationRule(extracted, rules);
     if (classificationRule) {
@@ -206,17 +228,17 @@ export async function processReceiptRun({ organizationId, documentId, runId }) {
       extracted = { ...extracted, category: inferred.category, categorySource: inferred.source, categoryConfidence: inferred.confidence, appliedRuleId: prior?.classification_rule_id || null };
     }
     const validation = receiptValidation(extracted);
-    const extraction = await saveExtraction({ organizationId, document, runId, rawText: text, extracted, validation, model: llmResult?.model });
+    const extraction = await saveExtraction({ organizationId, document, runId, rawText: text, extracted, validation, model: extractionModel });
     const fingerprint = receiptFingerprint(extracted);
     const duplicates = fingerprint ? await financeRest(`timefit_user_finance_documents?organization_id=eq.${encodeURIComponent(organizationId)}&document_type=eq.receipt&receipt_fingerprint=eq.${encodeURIComponent(fingerprint)}&id=neq.${encodeURIComponent(documentId)}&review_status=not.in.(rejected,withdrawn)&select=id,title,created_at&order=created_at.asc&limit=1`) : [];
     if (duplicates[0]) {
       await financeRest(`timefit_user_finance_documents?id=eq.${encodeURIComponent(documentId)}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ processing_status: 'ready', review_status: 'submitter_review', extracted_data: { ...extracted, duplicateDocumentId: duplicates[0].id }, ocr_text: text.slice(0,50000), receipt_fingerprint: fingerprint, duplicate_of_document_id: duplicates[0].id, processing_error: 'duplicate_receipt_suspected', document_date: extracted.transactionDate, processed_at: new Date().toISOString() }) });
-      await finishRun(runId, { status: 'succeeded', extraction_provider: extracted.extractionProvider, extraction_model: llmResult?.model || null, fallback_used: !llmResult, error_code: 'duplicate_receipt_suspected' });
+      await finishRun(runId, { status: 'succeeded', extraction_provider: extracted.extractionProvider, extraction_model: extractionModel, fallback_used: fallbackUsed, error_code: 'duplicate_receipt_suspected' });
       return { duplicateOfDocumentId: duplicates[0].id };
     }
     if (!validation.validForManagerReview) {
       await financeRest(`timefit_user_finance_documents?id=eq.${encodeURIComponent(documentId)}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ processing_status: 'ready', review_status: 'submitter_review', extracted_data: extracted, ocr_text: text.slice(0,50000), receipt_fingerprint: fingerprint, document_date: extracted.transactionDate, processed_at: new Date().toISOString() }) });
-      await finishRun(runId, { status: 'succeeded', extraction_provider: extracted.extractionProvider, extraction_model: llmResult?.model || null, fallback_used: !llmResult, error_code: llmError ? String(llmError.message || 'llm_fallback').slice(0,160) : null });
+      await finishRun(runId, { status: 'succeeded', extraction_provider: extracted.extractionProvider, extraction_model: extractionModel, fallback_used: fallbackUsed, error_code: processingWarning });
       return;
     }
     const expense = await createOrUpdateExpense({ organizationId, document, extracted, classificationRule });
@@ -225,7 +247,7 @@ export async function processReceiptRun({ organizationId, documentId, runId }) {
     const candidates = await replaceCandidates({ organizationId, documentId, expense, extracted });
     if (classificationRule) await financeRest(`timefit_user_expense_classification_rules?id=eq.${encodeURIComponent(classificationRule.id)}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ hit_count: Number(classificationRule.hit_count || 0) + 1, last_applied_at: new Date().toISOString(), updated_at: new Date().toISOString() }) });
     await financeRest(`timefit_user_finance_documents?id=eq.${encodeURIComponent(documentId)}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ processing_status: 'ready', review_status: validation.requiresSubmitterReview ? 'submitter_review' : 'manager_review', payment_method: document.payment_method || extracted.paymentMethod, document_date: extracted.transactionDate, extracted_data: extracted, ocr_text: text.slice(0,50000), receipt_fingerprint: fingerprint, processed_at: new Date().toISOString() }) });
-    await finishRun(runId, { status: 'succeeded', extraction_provider: extracted.extractionProvider, extraction_model: llmResult?.model || null, input_tokens: llmResult?.usage?.input_tokens || null, output_tokens: llmResult?.usage?.output_tokens || null, fallback_used: !llmResult, error_code: llmError ? String(llmError.message || 'llm_fallback').slice(0,160) : null });
+    await finishRun(runId, { status: 'succeeded', extraction_provider: extracted.extractionProvider, extraction_model: extractionModel, input_tokens: llmResult?.usage?.input_tokens || null, output_tokens: llmResult?.usage?.output_tokens || null, fallback_used: fallbackUsed, error_code: processingWarning });
     return { expenseId: expense.id, candidateCount: candidates.length };
   } catch (error) {
     await finishRun(runId, { status: 'failed', error_code: String(error.message || 'receipt_processing_failed').slice(0,160) }).catch(() => {});
