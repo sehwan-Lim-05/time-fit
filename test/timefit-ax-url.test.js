@@ -5,13 +5,19 @@ import { extractReceiptWithTimefitAx, normalizeTimefitAxExtraction, resolveTimef
 
 function withAxUrl(value, callback) {
   const previous = process.env.TIMEFIT_AX_URL;
+  const previousHosts = process.env.TIMEFIT_AX_ALLOWED_HOSTS;
   if (value === undefined) delete process.env.TIMEFIT_AX_URL;
-  else process.env.TIMEFIT_AX_URL = value;
+  else {
+    process.env.TIMEFIT_AX_URL = value;
+    process.env.TIMEFIT_AX_ALLOWED_HOSTS = new URL(value).hostname;
+  }
   try {
     callback();
   } finally {
     if (previous === undefined) delete process.env.TIMEFIT_AX_URL;
     else process.env.TIMEFIT_AX_URL = previous;
+    if (previousHosts === undefined) delete process.env.TIMEFIT_AX_ALLOWED_HOSTS;
+    else process.env.TIMEFIT_AX_ALLOWED_HOSTS = previousHosts;
   }
 }
 
@@ -29,7 +35,7 @@ test('Timefit AX URL accepts a production HTTPS origin', () => {
 
 test('Timefit AX URL rejects non-loopback HTTP endpoints', () => {
   withAxUrl('http://timefit-ax.example.com', () => {
-    assert.throws(resolveTimefitAxUrl, /timefit_ax_url_must_be_https_or_loopback/);
+    assert.throws(resolveTimefitAxUrl, /timefit_ax_https_required/);
   });
 });
 
@@ -40,7 +46,7 @@ test('Timefit AX URL rejects credentials, query strings, and fragments', () => {
     'https://timefit-ax.example.com#fragment',
   ]) {
     withAxUrl(value, () => {
-      assert.throws(resolveTimefitAxUrl, /timefit_ax_url_must_be_a_clean_base_url/);
+      assert.throws(resolveTimefitAxUrl, /timefit_ax_url_invalid/);
     });
   }
 });
@@ -63,11 +69,13 @@ test('Timefit AX receives only server-generated signed document URLs', async () 
   const previous = {
     url: process.env.TIMEFIT_AX_URL,
     key: process.env.TIMEFIT_AX_TRANSPORT_KEY,
+    allowedHosts: process.env.TIMEFIT_AX_ALLOWED_HOSTS,
     supabaseUrl: process.env.SUPABASE_URL,
     serviceKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
     fetch: global.fetch,
   };
   process.env.TIMEFIT_AX_URL = 'https://tunnel.example.com/timefit-ax';
+  process.env.TIMEFIT_AX_ALLOWED_HOSTS = 'tunnel.example.com';
   process.env.TIMEFIT_AX_TRANSPORT_KEY = '01234567890123456789012345678901';
   process.env.SUPABASE_URL = 'https://project.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-test';
@@ -94,7 +102,7 @@ test('Timefit AX receives only server-generated signed document URLs', async () 
     assert.equal(calls[1].options.headers['X-Timefit-Ax-Key'], process.env.TIMEFIT_AX_TRANSPORT_KEY);
   } finally {
     global.fetch = previous.fetch;
-    for (const [name, value] of [['TIMEFIT_AX_URL', previous.url], ['TIMEFIT_AX_TRANSPORT_KEY', previous.key], ['SUPABASE_URL', previous.supabaseUrl], ['SUPABASE_SERVICE_ROLE_KEY', previous.serviceKey]]) {
+    for (const [name, value] of [['TIMEFIT_AX_URL', previous.url], ['TIMEFIT_AX_ALLOWED_HOSTS', previous.allowedHosts], ['TIMEFIT_AX_TRANSPORT_KEY', previous.key], ['SUPABASE_URL', previous.supabaseUrl], ['SUPABASE_SERVICE_ROLE_KEY', previous.serviceKey]]) {
       if (value === undefined) delete process.env[name]; else process.env[name] = value;
     }
   }
