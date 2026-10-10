@@ -6,6 +6,7 @@ import expenseReview from '../api/expense-review.js';
 import expenses from '../api/expenses.js';
 import financeReport from '../api/finance-report.js';
 import receiptProcess from '../api/receipt-process.js';
+import receiptAx from '../api/receipt-ax.js';
 
 export const financeRoutes = Object.freeze({
   closeouts,
@@ -16,4 +17,5 @@ export const financeRoutes = Object.freeze({
   expenses,
   'finance-report': financeReport,
   'receipt-process': receiptProcess,
+  'receipt-ax': receiptAx,
 });
